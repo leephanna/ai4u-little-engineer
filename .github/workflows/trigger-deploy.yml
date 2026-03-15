@@ -1,0 +1,33 @@
+name: Trigger.dev Deploy
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'apps/trigger/**'
+      - '.github/workflows/trigger-deploy.yml'
+
+jobs:
+  deploy:
+    name: Deploy Trigger.dev Tasks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - uses: pnpm/action-setup@v3
+        with:
+          version: '9'
+
+      - name: Install dependencies
+        working-directory: apps/trigger
+        run: pnpm install --frozen-lockfile
+
+      - name: Deploy to Trigger.dev
+        working-directory: apps/trigger
+        run: npx trigger.dev@latest deploy --env prod
+        env:
+          TRIGGER_ACCESS_TOKEN: ${{ secrets.TRIGGER_ACCESS_TOKEN }}

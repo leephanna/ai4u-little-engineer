@@ -1,0 +1,262 @@
+"""
+Generate API Endpoint
+POST /generate — Generate a CAD model from a PartSpec.
+"""
+
+import os
+import time
+import uuid
+import json
+import logging
+from pathlib import Path
+from typing import Any
+
+from fastapi import APIRouter, HTTPException
+from fastapi.responses import JSONResponse
+
+from app.schemas.generation_request import GenerationRequest, GenerationResult, ArtifactResult, ValidationReport
+from app.schemas.part_spec import PartSpec
+from app.generators import get_generator, is_supported, list_partial_families
+from app.validators.dimensions import validate_bounding_box, validate_volume
+from app.validators.printable import score_printability, check_wall_thickness
+from app.exporters.step_export import export_step
+from app.exporters.stl_export import export_stl
+
+logger = logging.getLogger(__name__)
+router = APIRouter()
+
+ARTIFACTS_DIR = os.getenv("ARTIFACTS_DIR", "/app/artifacts")
+
+
+@router.post("", response_model=GenerationResult)
+async def generate_cad(request: GenerationRequest) -> GenerationResult:
+    """
+    Generate a CAD model from a PartSpec.
+
+    IMPORTANT: This endpoint ONLY returns status='success' when the CAD worker
+    successfully generates AND exports the files. Never returns fake success.
+    """
+    start_time = time.time()
+    run_id = str(uuid.uuid4())
+
+    logger.info(
+        f"Generation request: job={request.job_id} family={request.part_spec.family} "
+        f"variant={request.variant_type} engine={request.engine}"
+    )
+
+    # Normalize units to mm
+    spec = request.part_spec.normalize_to_mm()
+    dims = spec.dimensions
+
+    # Check engine
+    if request.engine == "freecad":
+        from app.adapters.freecad_adapter import is_available, FREECAD_ENABLED
+        if not FREECAD_ENABLED:
+            raise HTTPException(
+                status_code=400,
+                detail="FreeCAD engine is disabled. Use engine='build123d'.",
+            )
+
+    # Check if family is supported
+    if not is_supported(spec.family):
+        partial = list_partial_families()
+        if spec.family in partial:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Part family '{spec.family}' is PARTIAL: {partial[spec.family]}",
+            )
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported part family: '{spec.family}'. "
+                   f"Supported: {', '.join(['spacer', 'l_bracket', 'u_bracket', 'hole_plate', 'cable_clip', 'enclosure'])}",
+        )
+
+    generator = get_generator(spec.family)
+    generator_name = generator["name"]
+    generator_version = generator["version"]
+
+    # Get normalized params (for receipt)
+    try:
+        normalized_params = generator["get_normalized_params"](dims, request.variant_type)
+    except Exception as e:
+        return GenerationResult(
+            status="failed",
+            job_id=request.job_id,
+            part_spec_id=request.part_spec_id,
+            cad_run_id=run_id,
+            engine=request.engine,
+            generator_name=generator_name,
+            generator_version=generator_version,
+            normalized_params={},
+            error=str(e),
+            failure_stage="spec_ambiguity",
+            duration_ms=round((time.time() - start_time) * 1000, 1),
+        )
+
+    # Generate the CAD model
+    part = None
+    try:
+        part = generator["generate"](dims, request.variant_type)
+    except ValueError as e:
+        # Invalid dimensions — user-fixable
+        return GenerationResult(
+            status="failed",
+            job_id=request.job_id,
+            part_spec_id=request.part_spec_id,
+            cad_run_id=run_id,
+            engine=request.engine,
+            generator_name=generator_name,
+            generator_version=generator_version,
+            normalized_params=normalized_params,
+            error=str(e),
+            failure_stage="invalid_dimensions",
+            duration_ms=round((time.time() - start_time) * 1000, 1),
+        )
+    except ImportError as e:
+        # build123d not installed
+        raise HTTPException(
+            status_code=503,
+            detail=f"CAD engine unavailable: {e}",
+        )
+    except Exception as e:
+        logger.error(f"Generator exception for {spec.family}: {e}", exc_info=True)
+        return GenerationResult(
+            status="failed",
+            job_id=request.job_id,
+            part_spec_id=request.part_spec_id,
+            cad_run_id=run_id,
+            engine=request.engine,
+            generator_name=generator_name,
+            generator_version=generator_version,
+            normalized_params=normalized_params,
+            error=str(e),
+            failure_stage="generator_exception",
+            duration_ms=round((time.time() - start_time) * 1000, 1),
+        )
+
+    # Validate geometry
+    validation_warnings = []
+    validation_errors = []
+
+    bbox_ok, bbox, bbox_warnings = validate_bounding_box(
+        part,
+        max_dimensions_mm=spec.constraints.must_fit_within,
+    )
+    validation_warnings.extend(bbox_warnings)
+
+    vol_ok, volume, vol_warnings = validate_volume(part)
+    if not vol_ok:
+        validation_errors.extend(vol_warnings)
+
+    wall_ok, wall_mm, wall_warnings = check_wall_thickness(dims, spec.family)
+    validation_warnings.extend(wall_warnings)
+
+    printability_score, print_warnings, print_errors = score_printability(
+        part,
+        wall_thickness_mm=wall_mm,
+        bounding_box=bbox,
+    )
+    validation_warnings.extend(print_warnings)
+    validation_errors.extend(print_errors)
+
+    validation = ValidationReport(
+        bounding_box_ok=bbox_ok,
+        wall_thickness_ok=wall_ok,
+        units_ok=True,
+        printability_score=printability_score,
+        bounding_box_mm=bbox,
+        min_wall_thickness_mm=wall_mm,
+        warnings=validation_warnings,
+        errors=validation_errors,
+    )
+
+    # Strict validation gate
+    if request.strict_validation and validation_errors:
+        return GenerationResult(
+            status="failed",
+            job_id=request.job_id,
+            part_spec_id=request.part_spec_id,
+            cad_run_id=run_id,
+            engine=request.engine,
+            generator_name=generator_name,
+            generator_version=generator_version,
+            normalized_params=normalized_params,
+            validation=validation,
+            error=f"Validation failed: {'; '.join(validation_errors)}",
+            failure_stage="validation_failed",
+            duration_ms=round((time.time() - start_time) * 1000, 1),
+        )
+
+    # Export files
+    artifacts = []
+    artifact_dir = Path(ARTIFACTS_DIR) / request.job_id / run_id
+    artifact_dir.mkdir(parents=True, exist_ok=True)
+
+    export_errors = []
+
+    if "step" in request.export_formats:
+        step_path = artifact_dir / f"{spec.family}_{request.variant_type}.step"
+        try:
+            export_step(part, str(step_path))
+            artifacts.append(ArtifactResult(
+                kind="step",
+                local_path=str(step_path),
+                mime_type="application/step",
+                file_size_bytes=step_path.stat().st_size,
+            ))
+        except Exception as e:
+            export_errors.append(f"STEP export failed: {e}")
+            logger.error(f"STEP export error: {e}", exc_info=True)
+
+    if "stl" in request.export_formats:
+        stl_path = artifact_dir / f"{spec.family}_{request.variant_type}.stl"
+        try:
+            export_stl(part, str(stl_path))
+            artifacts.append(ArtifactResult(
+                kind="stl",
+                local_path=str(stl_path),
+                mime_type="model/stl",
+                file_size_bytes=stl_path.stat().st_size,
+            ))
+        except Exception as e:
+            export_errors.append(f"STL export failed: {e}")
+            logger.error(f"STL export error: {e}", exc_info=True)
+
+    if export_errors and not artifacts:
+        # All exports failed
+        return GenerationResult(
+            status="failed",
+            job_id=request.job_id,
+            part_spec_id=request.part_spec_id,
+            cad_run_id=run_id,
+            engine=request.engine,
+            generator_name=generator_name,
+            generator_version=generator_version,
+            normalized_params=normalized_params,
+            validation=validation,
+            error="; ".join(export_errors),
+            failure_stage="export_exception",
+            duration_ms=round((time.time() - start_time) * 1000, 1),
+        )
+
+    duration_ms = round((time.time() - start_time) * 1000, 1)
+    logger.info(
+        f"Generation SUCCESS: job={request.job_id} run={run_id} "
+        f"family={spec.family} artifacts={len(artifacts)} duration={duration_ms}ms"
+    )
+
+    return GenerationResult(
+        status="success",
+        job_id=request.job_id,
+        part_spec_id=request.part_spec_id,
+        cad_run_id=run_id,
+        engine=request.engine,
+        generator_name=generator_name,
+        generator_version=generator_version,
+        normalized_params=normalized_params,
+        artifacts=artifacts,
+        validation=validation,
+        assumptions=spec.assumptions,
+        warnings=validation_warnings + export_errors,
+        duration_ms=duration_ms,
+    )

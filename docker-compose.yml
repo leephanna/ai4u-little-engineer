@@ -1,0 +1,78 @@
+version: "3.9"
+
+# ═══════════════════════════════════════════════════════════════
+# AI4U Little Engineer — Local Development Stack
+# ═══════════════════════════════════════════════════════════════
+#
+# Usage:
+#   docker-compose up cad-worker          # Start only the CAD worker
+#   docker-compose up                     # Start all services
+#
+# The web app and Trigger.dev tasks run outside Docker via pnpm.
+# ═══════════════════════════════════════════════════════════════
+
+services:
+  # ─────────────────────────────────────────────────────────────
+  # CAD Worker — FastAPI + build123d
+  # ─────────────────────────────────────────────────────────────
+  cad-worker:
+    build:
+      context: ./apps/cad-worker
+      dockerfile: Dockerfile
+    container_name: ai4u-cad-worker
+    ports:
+      - "8080:8080"
+    environment:
+      - DEBUG=true
+      - ARTIFACTS_DIR=/app/artifacts
+      - ALLOWED_ORIGINS=http://localhost:3000
+      - SUPABASE_URL=${SUPABASE_URL:-${NEXT_PUBLIC_SUPABASE_URL}}
+      - SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SERVICE_ROLE_KEY}
+    volumes:
+      - cad-artifacts:/app/artifacts
+      - ./apps/cad-worker/app:/app/app:ro  # Hot reload in dev
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s  # build123d takes time to import
+    restart: unless-stopped
+
+  # ─────────────────────────────────────────────────────────────
+  # Redis — For rate limiting and caching (optional)
+  # ─────────────────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: ai4u-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    command: redis-server --appendonly yes
+    restart: unless-stopped
+    profiles:
+      - full
+
+  # ─────────────────────────────────────────────────────────────
+  # Mailhog — Local email testing (for Supabase auth emails)
+  # ─────────────────────────────────────────────────────────────
+  mailhog:
+    image: mailhog/mailhog:latest
+    container_name: ai4u-mailhog
+    ports:
+      - "1025:1025"  # SMTP
+      - "8025:8025"  # Web UI
+    restart: unless-stopped
+    profiles:
+      - full
+
+volumes:
+  cad-artifacts:
+    driver: local
+  redis-data:
+    driver: local
+
+networks:
+  default:
+    name: ai4u-network
