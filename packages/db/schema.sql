@@ -1,28 +1,29 @@
--- AI4U Little Engineer — Supabase / Postgres Schema (v3 — degraded-mode repair)
 -- ─────────────────────────────────────────────────────────────────────────────
--- CHANGE LOG (v3 — degraded-mode repair):
---   D. jobs.status: added 'awaiting_approval_local' for ALLOW_LOCAL_ARTIFACT_PATHS
---      degraded-mode runs. The job is held in this state instead of
---      'awaiting_approval' so the UI can show a local-dev warning.
---   E. cad_runs.status: added 'degraded_local' for the same reason.
---   F. artifacts.storage_path: changed from TEXT NOT NULL to TEXT (nullable).
---      A null value is only valid when local_only=TRUE.
---      Production runs MUST always have a non-null storage_path.
---   G. artifacts: added local_only BOOLEAN NOT NULL DEFAULT FALSE.
---      When TRUE the artifact was never uploaded to Supabase Storage and
---      cannot be downloaded. The UI must gate download actions on this flag.
+-- AI4U Little Engineer — Supabase PostgreSQL Schema
+-- Version: v4 (Option A — degraded mode removed)
 -- ─────────────────────────────────────────────────────────────────────────────
--- CHANGE LOG (v2 — auth repair):
+-- CHANGE LOG
+--
+-- v4 (Option A — degraded mode removed):
+--   - Removed 'awaiting_approval_local' from jobs.status CHECK.
+--   - Removed 'degraded_local' from cad_runs.status CHECK.
+--   - Reverted artifacts.storage_path to TEXT NOT NULL.
+--   - Removed artifacts.local_only column and its CHECK constraint.
+--   - Removed ALLOW_LOCAL_ARTIFACT_PATHS references from comments.
+--   Rationale: v1 has no local-dev fallback. Any missing storage_path
+--   fails the run. Configure a real Supabase project for local dev.
+--
+-- v3 (degraded-mode repair — superseded by v4):
+--   - Added 'awaiting_approval_local', 'degraded_local', local_only, etc.
+--   - Reverted in v4.
+--
+-- v2 (auth repair):
 --   A. Removed public.users table entirely.
 --      All user_id columns now reference auth.users(id) directly.
 --      Supabase Auth IS the user store — no manual sync required.
---      A lightweight public.profiles view/table is added for display names
---      but is NOT a FK parent for any other table.
---   B. sessions.user_id now references auth.users(id) directly.
---      devices.user_id now references auth.users(id) directly.
---      approvals.reviewer_user_id now references auth.users(id) directly.
---   C. RLS policies updated: auth.uid() comparisons work directly against
---      the UUID columns that now reference auth.users(id).
+--   B. sessions.user_id, devices.user_id, approvals.reviewer_user_id
+--      now reference auth.users(id) directly.
+--   C. RLS policies updated to use auth.uid() directly.
 -- ─────────────────────────────────────────────────────────────────────────────
 
 -- ─────────────────────────────────────────────────────────────
@@ -100,11 +101,14 @@ CREATE TABLE IF NOT EXISTS public.jobs (
   title                 TEXT NOT NULL DEFAULT 'Untitled Part',
   status                TEXT NOT NULL DEFAULT 'draft'
                           CHECK (status IN (
-                            'draft', 'clarifying', 'generating',
+                            'draft',
+                            'clarifying',
+                            'generating',
                             'awaiting_approval',
-                            'awaiting_approval_local',  -- degraded/local-dev only
-                            'approved', 'rejected',
-                            'printed', 'failed'
+                            'approved',
+                            'rejected',
+                            'printed',
+                            'failed'
                           )),
   requested_family      TEXT,
   selected_family       TEXT,
@@ -192,12 +196,10 @@ CREATE TABLE IF NOT EXISTS public.cad_runs (
                            CHECK (engine IN ('build123d', 'freecad')),
   generator_name         TEXT NOT NULL,
   generator_version      TEXT NOT NULL DEFAULT '1.0.0',
+  -- v1 statuses: queued | running | success | failed
+  -- 'degraded_local' was removed in v4 (Option A).
   status                 TEXT NOT NULL DEFAULT 'queued'
-                           CHECK (status IN (
-                             'queued', 'running', 'success',
-                             'degraded_local',  -- ALLOW_LOCAL_ARTIFACT_PATHS=true only
-                             'failed'
-                           )),
+                           CHECK (status IN ('queued', 'running', 'success', 'failed')),
   source_code            TEXT,
   normalized_params_json JSONB NOT NULL DEFAULT '{}',
   validation_report_json JSONB NOT NULL DEFAULT '{}',
@@ -208,6 +210,10 @@ CREATE TABLE IF NOT EXISTS public.cad_runs (
 
 -- ─────────────────────────────────────────────────────────────
 -- artifacts
+-- All artifacts MUST have a non-null storage_path pointing to
+-- a file in the 'cad-artifacts' Supabase Storage bucket.
+-- The Trigger.dev pipeline enforces this at the application level
+-- (Step 5 integrity gate) before inserting any artifact rows.
 -- ─────────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS public.artifacts (
   id               UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -215,19 +221,10 @@ CREATE TABLE IF NOT EXISTS public.artifacts (
   job_id           UUID NOT NULL REFERENCES public.jobs(id) ON DELETE CASCADE,
   kind             TEXT NOT NULL
                      CHECK (kind IN ('step', 'stl', 'png', 'json_receipt', 'transcript', 'prompt', 'log')),
-  -- storage_path is nullable ONLY when local_only=TRUE (ALLOW_LOCAL_ARTIFACT_PATHS=true).
-  -- In production, storage_path MUST always be non-null.
-  -- The application-level integrity gate in the Trigger.dev pipeline enforces this.
-  storage_path     TEXT,
+  storage_path     TEXT NOT NULL,
   mime_type        TEXT NOT NULL,
   file_size_bytes  BIGINT,
-  -- local_only=TRUE means the file was never uploaded to Supabase Storage.
-  -- The UI MUST NOT show a download button when this is TRUE.
-  local_only       BOOLEAN NOT NULL DEFAULT FALSE,
-  created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  -- Enforce: storage_path must be non-null for production artifacts
-  CONSTRAINT artifacts_storage_path_required
-    CHECK (local_only = TRUE OR storage_path IS NOT NULL)
+  created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 -- ─────────────────────────────────────────────────────────────
@@ -258,191 +255,183 @@ CREATE TABLE IF NOT EXISTS public.print_results (
   infill_percent    NUMERIC(5,2),
   orientation_notes TEXT,
   outcome           TEXT NOT NULL CHECK (outcome IN ('success', 'partial', 'fail')),
-  fit_score         NUMERIC(3,2),
-  strength_score    NUMERIC(3,2),
-  surface_score     NUMERIC(3,2),
+  fit_score         SMALLINT CHECK (fit_score BETWEEN 1 AND 5),
+  strength_score    SMALLINT CHECK (strength_score BETWEEN 1 AND 5),
+  surface_score     SMALLINT CHECK (surface_score BETWEEN 1 AND 5),
   issue_tags        TEXT[] NOT NULL DEFAULT '{}',
   notes             TEXT,
   created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 -- ─────────────────────────────────────────────────────────────
--- learning_events
--- ─────────────────────────────────────────────────────────────
-CREATE TABLE IF NOT EXISTS public.learning_events (
-  id                  UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  job_id              UUID NOT NULL REFERENCES public.jobs(id) ON DELETE CASCADE,
-  source_type         TEXT NOT NULL
-                        CHECK (source_type IN ('approval', 'print_result', 'manual_edit', 'eval_fail')),
-  event_payload_json  JSONB NOT NULL DEFAULT '{}',
-  created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
--- ─────────────────────────────────────────────────────────────
--- embeddings_memory (pgvector)
--- ─────────────────────────────────────────────────────────────
-CREATE TABLE IF NOT EXISTS public.embeddings_memory (
-  id            UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  job_id        UUID NOT NULL REFERENCES public.jobs(id) ON DELETE CASCADE,
-  memory_type   TEXT NOT NULL
-                  CHECK (memory_type IN ('transcript', 'spec', 'print_result', 'design_pattern')),
-  content       TEXT NOT NULL,
-  embedding     vector(1536),
-  metadata_json JSONB NOT NULL DEFAULT '{}',
-  created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
--- ─────────────────────────────────────────────────────────────
--- eval_runs
--- ─────────────────────────────────────────────────────────────
-CREATE TABLE IF NOT EXISTS public.eval_runs (
-  id          UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  suite_name  TEXT NOT NULL,
-  git_sha     TEXT,
-  provider    TEXT,
-  result_json JSONB NOT NULL DEFAULT '{}',
-  score       NUMERIC(5,4),
-  created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
--- ─────────────────────────────────────────────────────────────
 -- Indexes
 -- ─────────────────────────────────────────────────────────────
-CREATE INDEX IF NOT EXISTS idx_jobs_user_created
-  ON public.jobs (user_id, created_at DESC);
-
-CREATE INDEX IF NOT EXISTS idx_part_specs_job_version
-  ON public.part_specs (job_id, version DESC);
-
-CREATE INDEX IF NOT EXISTS idx_cad_runs_job_started
-  ON public.cad_runs (job_id, started_at DESC);
-
-CREATE INDEX IF NOT EXISTS idx_print_results_job_created
-  ON public.print_results (job_id, created_at DESC);
-
-CREATE INDEX IF NOT EXISTS idx_voice_turns_session
-  ON public.voice_turns (session_id, created_at ASC);
-
-CREATE INDEX IF NOT EXISTS idx_artifacts_job
-  ON public.artifacts (job_id, created_at DESC);
-
-CREATE INDEX IF NOT EXISTS idx_embeddings_job
-  ON public.embeddings_memory (job_id);
-
-CREATE INDEX IF NOT EXISTS idx_sessions_user
-  ON public.sessions (user_id, started_at DESC);
-
--- Vector similarity index (HNSW for fast approximate nearest neighbor)
-CREATE INDEX IF NOT EXISTS idx_embeddings_vector
-  ON public.embeddings_memory USING hnsw (embedding vector_cosine_ops)
-  WITH (m = 16, ef_construction = 64);
+CREATE INDEX IF NOT EXISTS idx_jobs_user_id         ON public.jobs(user_id);
+CREATE INDEX IF NOT EXISTS idx_jobs_status          ON public.jobs(status);
+CREATE INDEX IF NOT EXISTS idx_jobs_session_id      ON public.jobs(session_id);
+CREATE INDEX IF NOT EXISTS idx_voice_turns_session  ON public.voice_turns(session_id);
+CREATE INDEX IF NOT EXISTS idx_voice_turns_job      ON public.voice_turns(job_id);
+CREATE INDEX IF NOT EXISTS idx_part_specs_job       ON public.part_specs(job_id);
+CREATE INDEX IF NOT EXISTS idx_cad_runs_job         ON public.cad_runs(job_id);
+CREATE INDEX IF NOT EXISTS idx_cad_runs_status      ON public.cad_runs(status);
+CREATE INDEX IF NOT EXISTS idx_artifacts_job        ON public.artifacts(job_id);
+CREATE INDEX IF NOT EXISTS idx_artifacts_run        ON public.artifacts(cad_run_id);
+CREATE INDEX IF NOT EXISTS idx_approvals_job        ON public.approvals(job_id);
+CREATE INDEX IF NOT EXISTS idx_print_results_job    ON public.print_results(job_id);
 
 -- ─────────────────────────────────────────────────────────────
 -- Row Level Security
 -- ─────────────────────────────────────────────────────────────
--- NOTE: All policies compare auth.uid() directly to user_id columns
--- that reference auth.users(id). No public.users lookup needed.
--- ─────────────────────────────────────────────────────────────
-ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.devices ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.sessions ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.jobs ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.voice_turns ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.part_specs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.profiles         ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.devices          ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.sessions         ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.jobs             ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.voice_turns      ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.part_specs       ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.concept_variants ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.cad_runs ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.artifacts ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.approvals ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.print_results ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.learning_events ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.embeddings_memory ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.eval_runs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.cad_runs         ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.artifacts        ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.approvals        ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.print_results    ENABLE ROW LEVEL SECURITY;
 
--- Profiles: read/write own row
-CREATE POLICY "profiles_own" ON public.profiles
-  FOR ALL USING (auth.uid() = id);
+-- profiles
+CREATE POLICY "Users can view own profile"
+  ON public.profiles FOR SELECT
+  USING (auth.uid() = id);
 
--- Profiles: admins can read all
-CREATE POLICY "profiles_admin_read" ON public.profiles
-  FOR SELECT USING (
-    EXISTS (SELECT 1 FROM public.profiles p WHERE p.id = auth.uid() AND p.role = 'admin')
+CREATE POLICY "Users can update own profile"
+  ON public.profiles FOR UPDATE
+  USING (auth.uid() = id);
+
+-- devices
+CREATE POLICY "Users can manage own devices"
+  ON public.devices FOR ALL
+  USING (auth.uid() = user_id);
+
+-- sessions
+CREATE POLICY "Users can manage own sessions"
+  ON public.sessions FOR ALL
+  USING (auth.uid() = user_id);
+
+-- jobs
+CREATE POLICY "Users can view own jobs"
+  ON public.jobs FOR SELECT
+  USING (auth.uid() = user_id);
+
+CREATE POLICY "Users can insert own jobs"
+  ON public.jobs FOR INSERT
+  WITH CHECK (auth.uid() = user_id);
+
+CREATE POLICY "Users can update own jobs"
+  ON public.jobs FOR UPDATE
+  USING (auth.uid() = user_id);
+
+-- voice_turns (via session ownership)
+CREATE POLICY "Users can view own voice turns"
+  ON public.voice_turns FOR SELECT
+  USING (
+    EXISTS (
+      SELECT 1 FROM public.sessions s
+      WHERE s.id = session_id AND s.user_id = auth.uid()
+    )
   );
 
--- Jobs: users own their jobs
-CREATE POLICY "jobs_own" ON public.jobs
-  FOR ALL USING (auth.uid() = user_id);
-
--- Jobs: admins and reviewers can read all
-CREATE POLICY "jobs_admin_reviewer_read" ON public.jobs
-  FOR SELECT USING (
-    EXISTS (SELECT 1 FROM public.profiles p WHERE p.id = auth.uid() AND p.role IN ('admin', 'reviewer'))
+CREATE POLICY "Users can insert own voice turns"
+  ON public.voice_turns FOR INSERT
+  WITH CHECK (
+    EXISTS (
+      SELECT 1 FROM public.sessions s
+      WHERE s.id = session_id AND s.user_id = auth.uid()
+    )
   );
 
--- Sessions: own sessions
-CREATE POLICY "sessions_own" ON public.sessions
-  FOR ALL USING (auth.uid() = user_id);
-
--- Devices: own devices
-CREATE POLICY "devices_own" ON public.devices
-  FOR ALL USING (auth.uid() = user_id);
-
--- Voice turns: via session ownership
-CREATE POLICY "voice_turns_own" ON public.voice_turns
-  FOR ALL USING (
-    EXISTS (SELECT 1 FROM public.sessions s WHERE s.id = session_id AND s.user_id = auth.uid())
+-- part_specs (via job ownership)
+CREATE POLICY "Users can view own part specs"
+  ON public.part_specs FOR SELECT
+  USING (
+    EXISTS (
+      SELECT 1 FROM public.jobs j
+      WHERE j.id = job_id AND j.user_id = auth.uid()
+    )
   );
 
--- Part specs: via job ownership
-CREATE POLICY "part_specs_own" ON public.part_specs
-  FOR ALL USING (
-    EXISTS (SELECT 1 FROM public.jobs j WHERE j.id = job_id AND j.user_id = auth.uid())
+CREATE POLICY "Users can insert own part specs"
+  ON public.part_specs FOR INSERT
+  WITH CHECK (
+    EXISTS (
+      SELECT 1 FROM public.jobs j
+      WHERE j.id = job_id AND j.user_id = auth.uid()
+    )
   );
 
--- Concept variants: via job ownership
-CREATE POLICY "concept_variants_own" ON public.concept_variants
-  FOR ALL USING (
-    EXISTS (SELECT 1 FROM public.jobs j WHERE j.id = job_id AND j.user_id = auth.uid())
+-- concept_variants (via job ownership)
+CREATE POLICY "Users can view own concept variants"
+  ON public.concept_variants FOR SELECT
+  USING (
+    EXISTS (
+      SELECT 1 FROM public.jobs j
+      WHERE j.id = job_id AND j.user_id = auth.uid()
+    )
   );
 
--- CAD runs: via job ownership
-CREATE POLICY "cad_runs_own" ON public.cad_runs
-  FOR ALL USING (
-    EXISTS (SELECT 1 FROM public.jobs j WHERE j.id = job_id AND j.user_id = auth.uid())
+-- cad_runs (via job ownership)
+CREATE POLICY "Users can view own cad runs"
+  ON public.cad_runs FOR SELECT
+  USING (
+    EXISTS (
+      SELECT 1 FROM public.jobs j
+      WHERE j.id = job_id AND j.user_id = auth.uid()
+    )
   );
 
--- Artifacts: via job ownership
-CREATE POLICY "artifacts_own" ON public.artifacts
-  FOR ALL USING (
-    EXISTS (SELECT 1 FROM public.jobs j WHERE j.id = job_id AND j.user_id = auth.uid())
+-- artifacts (via job ownership)
+CREATE POLICY "Users can view own artifacts"
+  ON public.artifacts FOR SELECT
+  USING (
+    EXISTS (
+      SELECT 1 FROM public.jobs j
+      WHERE j.id = job_id AND j.user_id = auth.uid()
+    )
   );
 
--- Approvals: own job or reviewer/admin
-CREATE POLICY "approvals_own" ON public.approvals
-  FOR ALL USING (
-    EXISTS (SELECT 1 FROM public.jobs j WHERE j.id = job_id AND j.user_id = auth.uid())
-    OR EXISTS (SELECT 1 FROM public.profiles p WHERE p.id = auth.uid() AND p.role IN ('admin', 'reviewer'))
+-- approvals (via job ownership)
+CREATE POLICY "Users can view own approvals"
+  ON public.approvals FOR SELECT
+  USING (
+    EXISTS (
+      SELECT 1 FROM public.jobs j
+      WHERE j.id = job_id AND j.user_id = auth.uid()
+    )
   );
 
--- Print results: via job ownership
-CREATE POLICY "print_results_own" ON public.print_results
-  FOR ALL USING (
-    EXISTS (SELECT 1 FROM public.jobs j WHERE j.id = job_id AND j.user_id = auth.uid())
+CREATE POLICY "Users can insert own approvals"
+  ON public.approvals FOR INSERT
+  WITH CHECK (
+    EXISTS (
+      SELECT 1 FROM public.jobs j
+      WHERE j.id = job_id AND j.user_id = auth.uid()
+    )
   );
 
--- Learning events: via job ownership
-CREATE POLICY "learning_events_own" ON public.learning_events
-  FOR ALL USING (
-    EXISTS (SELECT 1 FROM public.jobs j WHERE j.id = job_id AND j.user_id = auth.uid())
+-- print_results (via job ownership)
+CREATE POLICY "Users can manage own print results"
+  ON public.print_results FOR ALL
+  USING (
+    EXISTS (
+      SELECT 1 FROM public.jobs j
+      WHERE j.id = job_id AND j.user_id = auth.uid()
+    )
   );
 
--- Embeddings memory: via job ownership
-CREATE POLICY "embeddings_memory_own" ON public.embeddings_memory
-  FOR ALL USING (
-    EXISTS (SELECT 1 FROM public.jobs j WHERE j.id = job_id AND j.user_id = auth.uid())
-  );
+-- ─────────────────────────────────────────────────────────────
+-- Storage bucket policy (apply in Supabase dashboard)
+-- ─────────────────────────────────────────────────────────────
+-- Bucket name: cad-artifacts
+-- Access: private (no public access)
+-- RLS: users can read their own artifacts via signed URLs
+-- The Trigger.dev pipeline uses the service role key to upload.
+-- The web app generates short-lived signed URLs (60s) for downloads.
 
--- Eval runs: admin only
-CREATE POLICY "eval_runs_admin" ON public.eval_runs
-  FOR ALL USING (
-    EXISTS (SELECT 1 FROM public.profiles p WHERE p.id = auth.uid() AND p.role = 'admin')
-  );
+-- ─────────────────────────────────────────────────────────────
+-- © AI4U, LLC. AI4Utech.com, Lee Hanna-Owner.
+-- ─────────────────────────────────────────────────────────────

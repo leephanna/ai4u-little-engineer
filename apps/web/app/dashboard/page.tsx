@@ -8,7 +8,6 @@ const STATUS_LABELS: Record<string, string> = {
   clarifying: "Clarifying",
   generating: "Generating",
   awaiting_approval: "Awaiting Approval",
-  awaiting_approval_local: "Awaiting Approval (Local)", // degraded/local-dev mode
   approved: "Approved",
   rejected: "Rejected",
   printed: "Printed",
@@ -83,7 +82,7 @@ export default async function DashboardPage() {
     approved: jobList.filter((j) => j.status === "approved").length,
     printed: jobList.filter((j) => j.status === "printed").length,
     generating: jobList.filter((j) =>
-      ["generating", "awaiting_approval", "awaiting_approval_local"].includes(j.status)
+      ["generating", "awaiting_approval"].includes(j.status)
     ).length,
   };
 

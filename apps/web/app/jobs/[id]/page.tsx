@@ -2,6 +2,12 @@ import { createClient } from "@/lib/supabase/server";
 import { redirect, notFound } from "next/navigation";
 import Link from "next/link";
 import type { Job, PartSpec, CadRun, Artifact, Approval } from "@/lib/types";
+import {
+  JOB_STATUS_COLORS,
+  JOB_STATUS_LABELS,
+  CAD_RUN_STATUS_COLORS,
+  CAD_RUN_STATUS_LABELS,
+} from "@/lib/types";
 import { ApprovalPanel } from "@/components/jobs/ApprovalPanel";
 import { ArtifactList } from "@/components/jobs/ArtifactList";
 import { SpecSummary } from "@/components/jobs/SpecSummary";
@@ -10,38 +16,6 @@ import { ValidationBadge } from "@/components/jobs/ValidationBadge";
 interface PageProps {
   params: Promise<{ id: string }>;
 }
-
-const STATUS_COLORS: Record<string, string> = {
-  draft: "text-steel-400",
-  clarifying: "text-yellow-400",
-  generating: "text-brand-400",
-  awaiting_approval: "text-orange-400",
-  awaiting_approval_local: "text-yellow-500", // degraded/local-dev mode
-  approved: "text-green-400",
-  rejected: "text-red-400",
-  printed: "text-emerald-400",
-  failed: "text-red-500",
-};
-
-const STATUS_LABELS: Record<string, string> = {
-  draft: "Draft",
-  clarifying: "Clarifying",
-  generating: "Generating",
-  awaiting_approval: "Awaiting Approval",
-  awaiting_approval_local: "Awaiting Approval (Local Dev)",
-  approved: "Approved",
-  rejected: "Rejected",
-  printed: "Printed",
-  failed: "Failed",
-};
-
-const RUN_STATUS_COLORS: Record<string, string> = {
-  success: "bg-green-900 text-green-300",
-  degraded_local: "bg-yellow-900 text-yellow-300",
-  failed: "bg-red-900 text-red-300",
-  running: "bg-brand-900 text-brand-300",
-  queued: "bg-steel-700 text-steel-300",
-};
 
 export default async function JobDetailPage({ params }: PageProps) {
   const { id } = await params;
@@ -96,12 +70,10 @@ export default async function JobDetailPage({ params }: PageProps) {
   const latestRun = runs[0] ?? null;
   const latestApproval = approvals[0] ?? null;
 
-  const statusColor = STATUS_COLORS[job.status] ?? "text-steel-400";
-  const statusLabel = STATUS_LABELS[job.status] ?? job.status.replace(/_/g, " ");
+  const statusColor = JOB_STATUS_COLORS[job.status as keyof typeof JOB_STATUS_COLORS] ?? "bg-gray-100 text-gray-700";
+  const statusLabel = JOB_STATUS_LABELS[job.status as keyof typeof JOB_STATUS_LABELS] ?? job.status.replace(/_/g, " ");
 
-  const isLocalDev = job.status === "awaiting_approval_local";
-  const isAwaitingApproval =
-    job.status === "awaiting_approval" || job.status === "awaiting_approval_local";
+  const isAwaitingApproval = job.status === "awaiting_approval";
 
   return (
     <div className="min-h-screen bg-steel-900">
@@ -118,10 +90,12 @@ export default async function JobDetailPage({ params }: PageProps) {
         </Link>
         <div className="flex-1 min-w-0">
           <h1 className="font-semibold text-steel-100 truncate">{job.title}</h1>
-          <p className={`text-xs ${statusColor} capitalize`}>{statusLabel}</p>
+          <span className={`inline-block text-xs px-2 py-0.5 rounded-full mt-0.5 ${statusColor}`}>
+            {statusLabel}
+          </span>
         </div>
 
-        {/* Generate button */}
+        {/* Generate button — available when spec exists but not yet generating */}
         {latestSpec && ["draft", "clarifying", "failed"].includes(job.status) && (
           <Link
             href={`/jobs/${id}/generate`}
@@ -133,22 +107,6 @@ export default async function JobDetailPage({ params }: PageProps) {
       </header>
 
       <main className="max-w-3xl mx-auto px-4 py-6 space-y-6">
-
-        {/* ── Local-dev degraded mode warning ── */}
-        {isLocalDev && (
-          <div className="bg-yellow-900/40 border border-yellow-600 rounded-xl px-4 py-3 text-yellow-200 text-sm">
-            <p className="font-semibold mb-1">⚠ Local Dev Mode — Artifacts Not Persisted</p>
-            <p className="text-yellow-300 text-xs leading-relaxed">
-              This job was completed with{" "}
-              <code className="font-mono bg-yellow-900/60 px-1 rounded">
-                ALLOW_LOCAL_ARTIFACT_PATHS=true
-              </code>
-              . The CAD files were generated locally but were <strong>not uploaded</strong> to
-              Supabase Storage. Downloads are unavailable. To get downloadable STEP/STL files,
-              re-run this job in a production environment with a configured Supabase Storage bucket.
-            </p>
-          </div>
-        )}
 
         {/* Part Spec Summary */}
         {latestSpec && (
@@ -173,18 +131,14 @@ export default async function JobDetailPage({ params }: PageProps) {
                 </span>
                 <span
                   className={`text-xs px-2 py-0.5 rounded-full ${
-                    RUN_STATUS_COLORS[latestRun.status] ?? "bg-steel-700 text-steel-300"
+                    CAD_RUN_STATUS_COLORS[latestRun.status as keyof typeof CAD_RUN_STATUS_COLORS] ??
+                    "bg-steel-700 text-steel-300"
                   }`}
                 >
-                  {latestRun.status === "degraded_local" ? "degraded (local)" : latestRun.status}
+                  {CAD_RUN_STATUS_LABELS[latestRun.status as keyof typeof CAD_RUN_STATUS_LABELS] ??
+                    latestRun.status}
                 </span>
               </div>
-
-              {latestRun.status === "degraded_local" && (
-                <p className="text-yellow-400 text-xs">
-                  Run completed in local-dev mode. Files were not uploaded to Supabase Storage.
-                </p>
-              )}
 
               {latestRun.validation_report_json && (
                 <ValidationBadge report={latestRun.validation_report_json} />
@@ -209,18 +163,12 @@ export default async function JobDetailPage({ params }: PageProps) {
           </section>
         )}
 
-        {/* Approval Panel — shown for both awaiting_approval and awaiting_approval_local */}
+        {/* Approval Panel */}
         {isAwaitingApproval && latestRun && (
           <section>
             <h2 className="text-sm font-medium text-steel-400 uppercase tracking-wide mb-3">
               Review & Approve
             </h2>
-            {isLocalDev && (
-              <p className="text-yellow-400 text-xs mb-3">
-                You can still approve this local-dev run, but no downloadable files will be
-                available until the job is re-run in production.
-              </p>
-            )}
             <ApprovalPanel
               jobId={id}
               cadRunId={latestRun.id}

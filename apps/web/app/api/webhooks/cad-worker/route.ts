@@ -7,7 +7,7 @@
  * ── Single-writer model ──────────────────────────────────────────────────────
  * The Trigger.dev pipeline is the SOLE authoritative DB writer for:
  *   - cad_runs  (status, validation_report_json, error_text, ended_at, …)
- *   - artifacts (storage_path, local_only, mime_type, …)
+ *   - artifacts (storage_path, mime_type, …)
  *   - jobs      (status, latest_run_id)
  *
  * This webhook MUST NOT touch those tables. Its only responsibilities are:
@@ -30,7 +30,7 @@ interface CadWorkerNotification {
   job_id: string;
   cad_run_id: string;
   /** Final status written by the Trigger.dev pipeline to cad_runs.status */
-  status: "success" | "degraded_local" | "failed";
+  status: "success" | "failed";
   /** Number of artifact rows the pipeline inserted */
   artifact_count: number;
   duration_ms: number;
