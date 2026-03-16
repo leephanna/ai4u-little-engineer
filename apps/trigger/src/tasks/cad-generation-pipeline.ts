@@ -1,18 +1,40 @@
 /**
  * CAD Generation Pipeline — Trigger.dev Task
  *
- * This is the main orchestration task that:
- * 1. Fetches the PartSpec from Supabase
- * 2. Calls the CAD worker FastAPI service
- * 3. Uploads artifacts to Supabase Storage
- * 4. Writes the receipt.json
- * 5. Calls back the web app webhook
- * 6. Handles retries and failure reporting
+ * Artifact storage integrity contract
+ * ─────────────────────────────────────
+ * Every STEP and STL artifact returned by the CAD worker MUST have a non-null
+ * storage_path before this pipeline will mark the run as successful and
+ * transition the job to awaiting_approval.
  *
- * Task ID: cad-generation-pipeline
+ * If any required artifact has storage_path = null the pipeline FAILS the run
+ * and does NOT insert artifact rows or advance the job status, UNLESS the
+ * environment variable ALLOW_LOCAL_ARTIFACT_PATHS=true is explicitly set.
+ *
+ * ALLOW_LOCAL_ARTIFACT_PATHS=true (local-dev only)
+ * ─────────────────────────────────────────────────
+ * When this flag is set the run is marked "degraded_local" (not "success"),
+ * the job is set to "awaiting_approval_local" (not "awaiting_approval"), and
+ * every artifact row is inserted with a local_only=true flag so the UI can
+ * display a clear "local dev — no download available" warning instead of
+ * presenting a broken download link as a normal success.
+ *
+ * Flow (production)
+ * ─────────────────
+ * 1. Mark cad_run → running
+ * 2. Fetch PartSpec from Supabase
+ * 3. POST /generate to CAD worker
+ * 4. Worker uploads files → returns storage_path per artifact
+ * 5. Validate: all required artifact storage_paths are non-null
+ *    → If any are null and ALLOW_LOCAL_ARTIFACT_PATHS≠true → FAIL
+ * 6. Write receipt.json to Supabase Storage
+ * 7. Insert artifact rows with real storage_path values
+ * 8. Update cad_run → success
+ * 9. Update job → awaiting_approval
+ * 10. Notify web app webhook
  */
 
-import { task, logger, retry, AbortTaskRunError } from "@trigger.dev/sdk/v3";
+import { task, logger, AbortTaskRunError } from "@trigger.dev/sdk/v3";
 import { createClient } from "@supabase/supabase-js";
 import { z } from "zod";
 
@@ -33,8 +55,28 @@ const PipelinePayload = z.object({
 type PipelinePayload = z.infer<typeof PipelinePayload>;
 
 // ─────────────────────────────────────────────────────────────
-// Helpers
+// Artifact shape returned by the CAD worker
 // ─────────────────────────────────────────────────────────────
+
+interface WorkerArtifact {
+  kind: string;
+  local_path: string;
+  storage_path: string | null;
+  mime_type: string;
+  file_size_bytes: number | null;
+}
+
+// Artifact kinds that MUST have a real storage_path in production.
+// json_receipt is written by this pipeline itself, so it is excluded here.
+const REQUIRED_STORAGE_KINDS = new Set(["step", "stl"]);
+
+// ─────────────────────────────────────────────────────────────
+// Environment helpers
+// ─────────────────────────────────────────────────────────────
+
+function isLocalArtifactPathsAllowed(): boolean {
+  return process.env.ALLOW_LOCAL_ARTIFACT_PATHS === "true";
+}
 
 function getSupabaseClient() {
   const url = process.env.SUPABASE_URL;
@@ -47,16 +89,14 @@ function getSupabaseClient() {
 
 function getCadWorkerUrl(): string {
   const url = process.env.CAD_WORKER_URL;
-  if (!url) {
-    throw new Error("Missing CAD_WORKER_URL environment variable");
-  }
+  if (!url) throw new Error("Missing CAD_WORKER_URL environment variable");
   return url.replace(/\/$/, "");
 }
 
 async function callCadWorker(
   cadWorkerUrl: string,
   payload: Record<string, unknown>,
-  timeoutMs: number = 120_000
+  timeoutMs = 120_000
 ): Promise<Record<string, unknown>> {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
@@ -74,9 +114,7 @@ async function callCadWorker(
 
     if (!response.ok) {
       const errorText = await response.text();
-      throw new Error(
-        `CAD worker returned ${response.status}: ${errorText.slice(0, 500)}`
-      );
+      throw new Error(`CAD worker returned ${response.status}: ${errorText.slice(0, 500)}`);
     }
 
     return (await response.json()) as Record<string, unknown>;
@@ -85,33 +123,13 @@ async function callCadWorker(
   }
 }
 
-async function uploadArtifactToStorage(
-  supabase: ReturnType<typeof createClient>,
-  localPath: string,
-  storagePath: string,
-  mimeType: string
-): Promise<string> {
-  // In the Trigger.dev environment, the CAD worker runs in a separate container.
-  // The worker uploads files to a shared volume or returns them as base64.
-  // For V1, we assume the worker returns artifact content as base64 in the response.
-  // This function handles the Supabase Storage upload.
-
-  // TODO: Implement actual file transfer mechanism (shared volume or base64 response)
-  // For now, return the storage path as-is (worker handles upload directly)
-  return storagePath;
-}
-
 async function notifyWebhook(
   webhookUrl: string,
   webhookSecret: string | undefined,
   payload: Record<string, unknown>
 ): Promise<void> {
-  const headers: Record<string, string> = {
-    "Content-Type": "application/json",
-  };
-  if (webhookSecret) {
-    headers["x-webhook-secret"] = webhookSecret;
-  }
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (webhookSecret) headers["x-webhook-secret"] = webhookSecret;
 
   const response = await fetch(webhookUrl, {
     method: "POST",
@@ -130,7 +148,7 @@ async function notifyWebhook(
 
 export const cadGenerationPipeline = task({
   id: "cad-generation-pipeline",
-  maxDuration: 300, // 5 minutes max
+  maxDuration: 300,
   retry: {
     maxAttempts: 3,
     minTimeoutInMs: 2000,
@@ -142,13 +160,12 @@ export const cadGenerationPipeline = task({
     const { job_id, cad_run_id, part_spec_id, variant_type, engine } =
       PipelinePayload.parse(payload);
 
+    const allowLocalPaths = isLocalArtifactPathsAllowed();
+
     logger.info("CAD generation pipeline started", {
-      job_id,
-      cad_run_id,
-      part_spec_id,
-      variant_type,
-      engine,
+      job_id, cad_run_id, part_spec_id, variant_type, engine,
       attempt: ctx.attempt.number,
+      allow_local_artifact_paths: allowLocalPaths,
     });
 
     const supabase = getSupabaseClient();
@@ -162,7 +179,7 @@ export const cadGenerationPipeline = task({
       .update({ status: "running", started_at: new Date().toISOString() })
       .eq("id", cad_run_id);
 
-    // ── Step 2: Fetch PartSpec from Supabase ─────────────────
+    // ── Step 2: Fetch PartSpec ───────────────────────────────
     logger.log("Fetching part spec", { part_spec_id });
 
     const { data: spec, error: specError } = await supabase
@@ -174,7 +191,6 @@ export const cadGenerationPipeline = task({
     if (specError || !spec) {
       const errorMsg = `Part spec not found: ${part_spec_id}`;
       logger.error(errorMsg);
-
       await supabase
         .from("cad_runs")
         .update({
@@ -183,7 +199,6 @@ export const cadGenerationPipeline = task({
           ended_at: new Date().toISOString(),
         })
         .eq("id", cad_run_id);
-
       throw new AbortTaskRunError(errorMsg);
     }
 
@@ -218,9 +233,10 @@ export const cadGenerationPipeline = task({
         strict_validation: true,
       });
     } catch (err) {
-      const errorMsg = `CAD worker call failed: ${err instanceof Error ? err.message : String(err)}`;
+      const errorMsg = `CAD worker call failed: ${
+        err instanceof Error ? err.message : String(err)
+      }`;
       logger.error(errorMsg);
-
       await supabase
         .from("cad_runs")
         .update({
@@ -229,18 +245,11 @@ export const cadGenerationPipeline = task({
           ended_at: new Date().toISOString(),
         })
         .eq("id", cad_run_id);
-
-      // Retry on network errors
       throw new Error(errorMsg);
     }
 
     const cadStatus = cadResult.status as string;
-    const cadArtifacts = (cadResult.artifacts as Array<{
-      kind: string;
-      local_path: string;
-      mime_type: string;
-      file_size_bytes: number | null;
-    }>) ?? [];
+    const cadArtifacts = (cadResult.artifacts as WorkerArtifact[]) ?? [];
 
     logger.log("CAD worker response received", {
       status: cadStatus,
@@ -248,7 +257,7 @@ export const cadGenerationPipeline = task({
       duration_ms: cadResult.duration_ms,
     });
 
-    // ── Step 4: Handle generation failure ────────────────────
+    // ── Step 4: Handle CAD generation failure ────────────────
     if (cadStatus !== "success") {
       const errorMsg = (cadResult.error as string) ?? "CAD generation failed";
       const failureStage = (cadResult.failure_stage as string) ?? "unknown";
@@ -274,27 +283,17 @@ export const cadGenerationPipeline = task({
         .update({ status: "failed", latest_run_id: cad_run_id })
         .eq("id", job_id);
 
-      // Notify webhook of failure
       if (webhookUrl) {
         await notifyWebhook(webhookUrl, webhookSecret, {
-          job_id,
-          cad_run_id,
-          part_spec_id,
+          job_id, cad_run_id, part_spec_id,
           status: "failed",
-          generator_name: cadResult.generator_name ?? spec.family,
-          generator_version: cadResult.generator_version ?? "1.0.0",
-          normalized_params: cadResult.normalized_params ?? {},
-          validation: cadResult.validation ?? null,
-          artifacts: [],
           error: errorMsg,
           failure_stage: failureStage,
-          assumptions: cadResult.assumptions ?? [],
-          warnings: cadResult.warnings ?? [],
+          artifacts: [],
           duration_ms: cadResult.duration_ms ?? 0,
         });
       }
 
-      // Don't retry on validation/dimension failures (user-fixable)
       const nonRetryableStages = [
         "invalid_dimensions",
         "spec_ambiguity",
@@ -305,62 +304,114 @@ export const cadGenerationPipeline = task({
           `Non-retryable failure: [${failureStage}] ${errorMsg}`
         );
       }
-
       throw new Error(`CAD generation failed: ${errorMsg}`);
     }
 
-    // ── Step 5: Upload artifacts to Supabase Storage ─────────
-    logger.log("Uploading artifacts", { count: cadArtifacts.length });
+    // ── Step 5: Validate storage_path integrity ───────────────
+    //
+    // This is the integrity gate. Every STEP and STL artifact must have a
+    // real, non-null storage_path. A null path means the CAD worker's
+    // Supabase upload failed — the file exists only inside the worker
+    // container, which is ephemeral. Inserting a null-path artifact row
+    // and marking the job awaiting_approval would present a broken download
+    // link to the user as if it were a normal success.
+    //
+    // Production (ALLOW_LOCAL_ARTIFACT_PATHS unset or false):
+    //   → Fail the run immediately. The job stays in "generating" status.
+    //   → Trigger.dev will retry up to maxAttempts times.
+    //
+    // Local dev (ALLOW_LOCAL_ARTIFACT_PATHS=true):
+    //   → Mark the run "degraded_local" and the job "awaiting_approval_local".
+    //   → Insert artifact rows with local_only=true.
+    //   → The UI must display a "local dev — no download available" warning.
 
-    const uploadedArtifacts: Array<{
-      kind: string;
-      storage_path: string;
-      mime_type: string;
-      file_size_bytes: number | null;
-    }> = [];
+    const missingStoragePaths = cadArtifacts.filter(
+      (a) => REQUIRED_STORAGE_KINDS.has(a.kind) && a.storage_path === null
+    );
 
-    for (const artifact of cadArtifacts) {
-      // Storage path: cad-artifacts/{job_id}/{cad_run_id}/{filename}
-      const filename = artifact.local_path.split("/").pop() ?? `artifact.${artifact.kind}`;
-      const storagePath = `${job_id}/${cad_run_id}/${filename}`;
+    if (missingStoragePaths.length > 0) {
+      const missingKinds = missingStoragePaths.map((a) => a.kind).join(", ");
 
-      // The CAD worker should have already uploaded the file to storage
-      // In V1, we trust the worker's reported paths
-      uploadedArtifacts.push({
-        kind: artifact.kind,
-        storage_path: storagePath,
-        mime_type: artifact.mime_type,
-        file_size_bytes: artifact.file_size_bytes,
-      });
+      if (!allowLocalPaths) {
+        // ── Production: hard failure ─────────────────────────
+        const errorMsg =
+          `Artifact storage upload failed for: [${missingKinds}]. ` +
+          `storage_path is null — files were not persisted to Supabase Storage. ` +
+          `Ensure SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are set in the ` +
+          `CAD worker environment and the 'cad-artifacts' bucket exists.`;
+
+        logger.error("Artifact storage integrity check failed", {
+          missing_kinds: missingKinds,
+          allow_local_artifact_paths: false,
+        });
+
+        await supabase
+          .from("cad_runs")
+          .update({
+            status: "failed",
+            normalized_params_json: cadResult.normalized_params ?? {},
+            validation_report_json: cadResult.validation ?? {},
+            error_text: `[storage_upload_failed] ${errorMsg}`,
+            ended_at: new Date().toISOString(),
+          })
+          .eq("id", cad_run_id);
+
+        await supabase
+          .from("jobs")
+          .update({ status: "failed", latest_run_id: cad_run_id })
+          .eq("id", job_id);
+
+        if (webhookUrl) {
+          await notifyWebhook(webhookUrl, webhookSecret, {
+            job_id, cad_run_id, part_spec_id,
+            status: "failed",
+            error: errorMsg,
+            failure_stage: "storage_upload_failed",
+            artifacts: [],
+            duration_ms: cadResult.duration_ms ?? 0,
+          });
+        }
+
+        // Retryable: the worker may succeed on the next attempt if the
+        // Supabase Storage outage was transient.
+        throw new Error(`[storage_upload_failed] ${errorMsg}`);
+      }
+
+      // ── Local dev degraded mode ──────────────────────────
+      logger.warn(
+        "ALLOW_LOCAL_ARTIFACT_PATHS=true — proceeding in degraded/local-only mode. " +
+        "Artifacts with null storage_path will be marked local_only=true. " +
+        "DO NOT use this flag in production.",
+        { missing_kinds: missingKinds }
+      );
     }
 
-    // ── Step 6: Write receipt.json ────────────────────────────
+    // ── Step 6: Write receipt.json to Supabase Storage ───────
+    // Determine final run/job status based on whether we are in degraded mode.
+    const hasMissingPaths = missingStoragePaths.length > 0;
+    const isDegradedLocalMode = hasMissingPaths && allowLocalPaths;
+
+    const runStatus = isDegradedLocalMode ? "degraded_local" : "success";
+    const jobStatus = isDegradedLocalMode ? "awaiting_approval_local" : "awaiting_approval";
+
     const receipt = {
       schema_version: "1.0",
       generated_at: new Date().toISOString(),
-      job_id,
-      cad_run_id,
-      part_spec_id,
-      variant_type,
-      engine,
+      job_id, cad_run_id, part_spec_id, variant_type, engine,
       generator_name: cadResult.generator_name,
       generator_version: cadResult.generator_version,
       normalized_params: cadResult.normalized_params,
       validation: cadResult.validation,
       assumptions: cadResult.assumptions ?? [],
       warnings: cadResult.warnings ?? [],
-      artifacts: uploadedArtifacts.map((a) => ({
-        kind: a.kind,
-        storage_path: a.storage_path,
-        mime_type: a.mime_type,
-        file_size_bytes: a.file_size_bytes,
-      })),
+      degraded_local: isDegradedLocalMode,
       trigger_run_id: ctx.run.id,
       duration_ms: cadResult.duration_ms,
     };
 
-    // Upload receipt to storage
     const receiptPath = `${job_id}/${cad_run_id}/receipt.json`;
+    let receiptStoragePath: string | null = null;
+
     const { error: receiptError } = await supabase.storage
       .from("cad-artifacts")
       .upload(receiptPath, JSON.stringify(receipt, null, 2), {
@@ -369,39 +420,45 @@ export const cadGenerationPipeline = task({
       });
 
     if (receiptError) {
-      logger.warn("Failed to upload receipt.json", { error: receiptError.message });
+      logger.warn("Failed to upload receipt.json", {
+        error: receiptError.message,
+      });
     } else {
-      uploadedArtifacts.push({
+      receiptStoragePath = receiptPath;
+    }
+
+    // ── Step 7: Insert artifact records ───────────────────────
+    // Build the artifact rows. In degraded mode, null-path artifacts get
+    // local_only=true so the UI can gate download buttons accordingly.
+    const artifactRows = cadArtifacts
+      .filter((a) => a.storage_path !== null || isDegradedLocalMode)
+      .map((a) => ({
+        cad_run_id,
+        job_id,
+        kind: a.kind,
+        storage_path: a.storage_path,           // null in degraded mode
+        mime_type: a.mime_type,
+        file_size_bytes: a.file_size_bytes,
+        local_only: a.storage_path === null,    // UI gate flag
+      }));
+
+    // Append receipt row if it was uploaded successfully
+    if (receiptStoragePath) {
+      artifactRows.push({
+        cad_run_id,
+        job_id,
         kind: "json_receipt",
-        storage_path: receiptPath,
+        storage_path: receiptStoragePath,
         mime_type: "application/json",
         file_size_bytes: JSON.stringify(receipt).length,
+        local_only: false,
       });
     }
 
-    // ── Step 7: Update cad_run record ─────────────────────────
-    await supabase
-      .from("cad_runs")
-      .update({
-        status: "success",
-        normalized_params_json: cadResult.normalized_params ?? {},
-        validation_report_json: cadResult.validation ?? {},
-        ended_at: new Date().toISOString(),
-      })
-      .eq("id", cad_run_id);
-
-    // ── Step 8: Insert artifact records ───────────────────────
-    if (uploadedArtifacts.length > 0) {
-      const { error: artifactError } = await supabase.from("artifacts").insert(
-        uploadedArtifacts.map((a) => ({
-          cad_run_id,
-          job_id,
-          kind: a.kind,
-          storage_path: a.storage_path,
-          mime_type: a.mime_type,
-          file_size_bytes: a.file_size_bytes,
-        }))
-      );
+    if (artifactRows.length > 0) {
+      const { error: artifactError } = await supabase
+        .from("artifacts")
+        .insert(artifactRows);
 
       if (artifactError) {
         logger.error("Failed to insert artifact records", {
@@ -410,34 +467,46 @@ export const cadGenerationPipeline = task({
       }
     }
 
+    // ── Step 8: Update cad_run record ─────────────────────────
+    await supabase
+      .from("cad_runs")
+      .update({
+        status: runStatus,
+        normalized_params_json: cadResult.normalized_params ?? {},
+        validation_report_json: cadResult.validation ?? {},
+        ended_at: new Date().toISOString(),
+      })
+      .eq("id", cad_run_id);
+
     // ── Step 9: Update job status ─────────────────────────────
     await supabase
       .from("jobs")
       .update({
-        status: "awaiting_approval",
+        status: jobStatus,
         latest_run_id: cad_run_id,
         updated_at: new Date().toISOString(),
       })
       .eq("id", job_id);
 
-    logger.info("CAD generation pipeline completed successfully", {
-      job_id,
-      cad_run_id,
-      artifact_count: uploadedArtifacts.length,
+    logger.info("CAD generation pipeline completed", {
+      job_id, cad_run_id,
+      run_status: runStatus,
+      job_status: jobStatus,
+      artifact_count: artifactRows.length,
+      degraded_local: isDegradedLocalMode,
     });
 
     // ── Step 10: Notify web app webhook ───────────────────────
     if (webhookUrl) {
       await notifyWebhook(webhookUrl, webhookSecret, {
-        job_id,
-        cad_run_id,
-        part_spec_id,
-        status: "success",
+        job_id, cad_run_id, part_spec_id,
+        status: runStatus,
+        degraded_local: isDegradedLocalMode,
         generator_name: cadResult.generator_name,
         generator_version: cadResult.generator_version,
         normalized_params: cadResult.normalized_params ?? {},
         validation: cadResult.validation ?? null,
-        artifacts: uploadedArtifacts,
+        artifacts: artifactRows,
         assumptions: cadResult.assumptions ?? [],
         warnings: cadResult.warnings ?? [],
         duration_ms: cadResult.duration_ms ?? 0,
@@ -445,10 +514,12 @@ export const cadGenerationPipeline = task({
     }
 
     return {
-      success: true,
+      success: !isDegradedLocalMode,
+      degraded_local: isDegradedLocalMode,
       job_id,
       cad_run_id,
-      artifact_count: uploadedArtifacts.length,
+      run_status: runStatus,
+      artifact_count: artifactRows.length,
       duration_ms: cadResult.duration_ms,
     };
   },

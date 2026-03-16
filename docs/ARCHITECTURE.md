@@ -142,7 +142,9 @@ AI4U Little Engineer is a voice-first, AI-powered 3D-printable part design assis
 
 The CAD worker is a stateless FastAPI service that accepts a `PartSpec` and returns CAD artifacts.
 
-### Generator Pattern
+### Generator Pattern (V1 Engine)
+
+In V1, **build123d** is the only supported production CAD engine. The FreeCAD engine is stubbed and disabled by default.
 
 Each part family has a dedicated generator module following this interface:
 
@@ -182,9 +184,10 @@ The voice session uses a push-to-talk model:
 1. User presses and holds the microphone button
 2. Browser records audio using `MediaRecorder` API (WebM/Opus)
 3. On release, audio blob is base64-encoded and sent to `/api/live-session`
-4. Server transcribes with Whisper, extracts spec with GPT-4.1
-5. Response text is spoken via browser `SpeechSynthesis` API
-6. Conversation continues until spec is complete
+4. Server transcribes with Whisper (used for both OpenAI and Gemini paths in V1, as true WebSocket streaming is planned for V2)
+5. Server extracts spec using either GPT-4.1 (JSON mode) or Gemini Live (function-calling), depending on `LLM_PROVIDER`
+6. Response text is spoken via browser `SpeechSynthesis` API
+7. Conversation continues until spec is complete
 
 ### State Machine
 

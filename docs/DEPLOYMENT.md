@@ -2,6 +2,10 @@
 
 ## Prerequisites
 
+> **Note on V1 Constraints:**
+> - **CAD Engine:** `build123d` is the only supported production engine. FreeCAD is stubbed.
+> - **LLM Provider:** `LLM_PROVIDER=gemini` is recommended for function-calling, but V1 still uses Whisper for initial transcription before passing text to Gemini. True WebSocket streaming is planned for V2.
+
 Before deploying, ensure you have:
 - [ ] Supabase project created with schema applied
 - [ ] OpenAI API key
