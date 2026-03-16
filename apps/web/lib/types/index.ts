@@ -1,6 +1,13 @@
 /**
  * AI4U Little Engineer — Web App TypeScript Types
- * These mirror the database schema and shared package types.
+ * These mirror the database schema (v3) and shared package types.
+ *
+ * v3 additions (degraded-mode repair):
+ *   - JobStatus: added 'awaiting_approval_local'
+ *   - CadRunStatus: added 'degraded_local'
+ *   - Artifact.local_only: boolean flag — when true, no Supabase Storage upload
+ *     occurred and the UI MUST NOT show a download button.
+ *   - Artifact.storage_path: now string | null (null only when local_only=true)
  */
 
 export type JobStatus =
@@ -8,9 +15,17 @@ export type JobStatus =
   | "clarifying"
   | "generating"
   | "awaiting_approval"
+  | "awaiting_approval_local" // degraded/local-dev mode only — ALLOW_LOCAL_ARTIFACT_PATHS=true
   | "approved"
   | "rejected"
   | "printed"
+  | "failed";
+
+export type CadRunStatus =
+  | "queued"
+  | "running"
+  | "success"
+  | "degraded_local" // ALLOW_LOCAL_ARTIFACT_PATHS=true — artifacts not in Storage
   | "failed";
 
 export type PartFamily =
@@ -28,6 +43,16 @@ export type PartFamily =
 export type VariantType = "requested" | "stronger" | "print_optimized" | "alternate";
 export type CadEngine = "build123d" | "freecad";
 export type Units = "mm" | "in";
+
+/** Returns true when a job is in a degraded/local-dev state. */
+export function isLocalOnlyJobStatus(status: JobStatus): boolean {
+  return status === "awaiting_approval_local";
+}
+
+/** Returns true when a CAD run is in a degraded/local-dev state. */
+export function isLocalOnlyRunStatus(status: CadRunStatus): boolean {
+  return status === "degraded_local";
+}
 
 export interface Job {
   id: string;
@@ -84,7 +109,7 @@ export interface CadRun {
   engine: CadEngine;
   generator_name: string;
   generator_version: string;
-  status: "queued" | "running" | "success" | "failed";
+  status: CadRunStatus;
   normalized_params_json: Record<string, unknown>;
   validation_report_json: ValidationReport;
   error_text: string | null;
@@ -108,9 +133,18 @@ export interface Artifact {
   cad_run_id: string;
   job_id: string;
   kind: "step" | "stl" | "png" | "json_receipt" | "transcript" | "prompt" | "log";
-  storage_path: string;
+  /**
+   * Nullable when local_only=true (ALLOW_LOCAL_ARTIFACT_PATHS=true degraded mode).
+   * In production this is always a non-null Supabase Storage path.
+   */
+  storage_path: string | null;
   mime_type: string;
   file_size_bytes: number | null;
+  /**
+   * When true, the file was never uploaded to Supabase Storage.
+   * The UI MUST NOT render a download button for local-only artifacts.
+   */
+  local_only: boolean;
   created_at: string;
 }
 

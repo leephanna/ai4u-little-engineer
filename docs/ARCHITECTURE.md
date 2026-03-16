@@ -19,7 +19,7 @@ AI4U Little Engineer is a voice-first, AI-powered 3D-printable part design assis
 │                                                                  │
 │  POST /api/live-session                                          │
 │    1. Whisper STT → transcript                                   │
-│    2. GPT-4.1 → PartSpec extraction + clarifying questions       │
+│    2. Gemini 2.0 Flash (or GPT-4.1) → PartSpec extraction        │
 │    3. Save voice_turns + part_specs to Supabase                  │
 │    4. Return response_text + spec status                         │
 │                                                                  │
@@ -185,7 +185,7 @@ The voice session uses a push-to-talk model:
 2. Browser records audio using `MediaRecorder` API (WebM/Opus)
 3. On release, audio blob is base64-encoded and sent to `/api/live-session`
 4. Server transcribes with Whisper (used for both OpenAI and Gemini paths in V1, as true WebSocket streaming is planned for V2)
-5. Server extracts spec using either GPT-4.1 (JSON mode) or Gemini Live (function-calling), depending on `LLM_PROVIDER`
+5. Server extracts spec using either Gemini 2.0 Flash (via Live API function-calling) or GPT-4.1 (JSON mode fallback), depending on `LLM_PROVIDER`
 6. Response text is spoken via browser `SpeechSynthesis` API
 7. Conversation continues until spec is complete
 

@@ -1,6 +1,29 @@
--- AI4U Little Engineer — Supabase / Postgres Schema
--- Run this against a fresh Supabase project.
--- Requires: pgvector extension (enable in Supabase dashboard or via SQL below)
+-- AI4U Little Engineer — Supabase / Postgres Schema (v3 — degraded-mode repair)
+-- ─────────────────────────────────────────────────────────────────────────────
+-- CHANGE LOG (v3 — degraded-mode repair):
+--   D. jobs.status: added 'awaiting_approval_local' for ALLOW_LOCAL_ARTIFACT_PATHS
+--      degraded-mode runs. The job is held in this state instead of
+--      'awaiting_approval' so the UI can show a local-dev warning.
+--   E. cad_runs.status: added 'degraded_local' for the same reason.
+--   F. artifacts.storage_path: changed from TEXT NOT NULL to TEXT (nullable).
+--      A null value is only valid when local_only=TRUE.
+--      Production runs MUST always have a non-null storage_path.
+--   G. artifacts: added local_only BOOLEAN NOT NULL DEFAULT FALSE.
+--      When TRUE the artifact was never uploaded to Supabase Storage and
+--      cannot be downloaded. The UI must gate download actions on this flag.
+-- ─────────────────────────────────────────────────────────────────────────────
+-- CHANGE LOG (v2 — auth repair):
+--   A. Removed public.users table entirely.
+--      All user_id columns now reference auth.users(id) directly.
+--      Supabase Auth IS the user store — no manual sync required.
+--      A lightweight public.profiles view/table is added for display names
+--      but is NOT a FK parent for any other table.
+--   B. sessions.user_id now references auth.users(id) directly.
+--      devices.user_id now references auth.users(id) directly.
+--      approvals.reviewer_user_id now references auth.users(id) directly.
+--   C. RLS policies updated: auth.uid() comparisons work directly against
+--      the UUID columns that now reference auth.users(id).
+-- ─────────────────────────────────────────────────────────────────────────────
 
 -- ─────────────────────────────────────────────────────────────
 -- Extensions
@@ -9,27 +32,45 @@ CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 CREATE EXTENSION IF NOT EXISTS "vector";
 
 -- ─────────────────────────────────────────────────────────────
--- ENUM-like check constraints (kept as text for flexibility)
+-- profiles
+-- Optional display-name store keyed off auth.users.id.
+-- NOT a FK parent for any other table — purely informational.
+-- Auto-created on first sign-in via the trigger below.
 -- ─────────────────────────────────────────────────────────────
-
--- ─────────────────────────────────────────────────────────────
--- users
--- ─────────────────────────────────────────────────────────────
-CREATE TABLE IF NOT EXISTS public.users (
-  id          UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  email       TEXT NOT NULL UNIQUE,
+CREATE TABLE IF NOT EXISTS public.profiles (
+  id          UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
   full_name   TEXT,
   role        TEXT NOT NULL DEFAULT 'builder'
                 CHECK (role IN ('admin', 'builder', 'reviewer')),
-  created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+-- Auto-create a profile row whenever a new auth user signs up
+CREATE OR REPLACE FUNCTION public.handle_new_user()
+RETURNS TRIGGER AS $$
+BEGIN
+  INSERT INTO public.profiles (id, full_name)
+  VALUES (
+    NEW.id,
+    COALESCE(NEW.raw_user_meta_data->>'full_name', NEW.email)
+  )
+  ON CONFLICT (id) DO NOTHING;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
+CREATE TRIGGER on_auth_user_created
+  AFTER INSERT ON auth.users
+  FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
 
 -- ─────────────────────────────────────────────────────────────
 -- devices
 -- ─────────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS public.devices (
   id          UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  user_id     UUID NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
+  user_id     UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
   label       TEXT,
   platform    TEXT,
   created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -37,10 +78,12 @@ CREATE TABLE IF NOT EXISTS public.devices (
 
 -- ─────────────────────────────────────────────────────────────
 -- sessions
+-- Represents a single voice conversation session.
+-- Created server-side before the first voice turn.
 -- ─────────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS public.sessions (
   id                  UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  user_id             UUID NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
+  user_id             UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
   device_id           UUID REFERENCES public.devices(id) ON DELETE SET NULL,
   started_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   ended_at            TIMESTAMPTZ,
@@ -52,13 +95,15 @@ CREATE TABLE IF NOT EXISTS public.sessions (
 -- ─────────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS public.jobs (
   id                    UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  user_id               UUID NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
+  user_id               UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
   session_id            UUID REFERENCES public.sessions(id) ON DELETE SET NULL,
   title                 TEXT NOT NULL DEFAULT 'Untitled Part',
   status                TEXT NOT NULL DEFAULT 'draft'
                           CHECK (status IN (
                             'draft', 'clarifying', 'generating',
-                            'awaiting_approval', 'approved', 'rejected',
+                            'awaiting_approval',
+                            'awaiting_approval_local',  -- degraded/local-dev only
+                            'approved', 'rejected',
                             'printed', 'failed'
                           )),
   requested_family      TEXT,
@@ -79,6 +124,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+DROP TRIGGER IF EXISTS jobs_updated_at ON public.jobs;
 CREATE TRIGGER jobs_updated_at
   BEFORE UPDATE ON public.jobs
   FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
@@ -147,7 +193,11 @@ CREATE TABLE IF NOT EXISTS public.cad_runs (
   generator_name         TEXT NOT NULL,
   generator_version      TEXT NOT NULL DEFAULT '1.0.0',
   status                 TEXT NOT NULL DEFAULT 'queued'
-                           CHECK (status IN ('queued', 'running', 'success', 'failed')),
+                           CHECK (status IN (
+                             'queued', 'running', 'success',
+                             'degraded_local',  -- ALLOW_LOCAL_ARTIFACT_PATHS=true only
+                             'failed'
+                           )),
   source_code            TEXT,
   normalized_params_json JSONB NOT NULL DEFAULT '{}',
   validation_report_json JSONB NOT NULL DEFAULT '{}',
@@ -165,10 +215,19 @@ CREATE TABLE IF NOT EXISTS public.artifacts (
   job_id           UUID NOT NULL REFERENCES public.jobs(id) ON DELETE CASCADE,
   kind             TEXT NOT NULL
                      CHECK (kind IN ('step', 'stl', 'png', 'json_receipt', 'transcript', 'prompt', 'log')),
-  storage_path     TEXT NOT NULL,
+  -- storage_path is nullable ONLY when local_only=TRUE (ALLOW_LOCAL_ARTIFACT_PATHS=true).
+  -- In production, storage_path MUST always be non-null.
+  -- The application-level integrity gate in the Trigger.dev pipeline enforces this.
+  storage_path     TEXT,
   mime_type        TEXT NOT NULL,
   file_size_bytes  BIGINT,
-  created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  -- local_only=TRUE means the file was never uploaded to Supabase Storage.
+  -- The UI MUST NOT show a download button when this is TRUE.
+  local_only       BOOLEAN NOT NULL DEFAULT FALSE,
+  created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  -- Enforce: storage_path must be non-null for production artifacts
+  CONSTRAINT artifacts_storage_path_required
+    CHECK (local_only = TRUE OR storage_path IS NOT NULL)
 );
 
 -- ─────────────────────────────────────────────────────────────
@@ -178,7 +237,7 @@ CREATE TABLE IF NOT EXISTS public.approvals (
   id               UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   job_id           UUID NOT NULL REFERENCES public.jobs(id) ON DELETE CASCADE,
   cad_run_id       UUID NOT NULL REFERENCES public.cad_runs(id) ON DELETE CASCADE,
-  reviewer_user_id UUID REFERENCES public.users(id) ON DELETE SET NULL,
+  reviewer_user_id UUID REFERENCES auth.users(id) ON DELETE SET NULL,
   decision         TEXT NOT NULL CHECK (decision IN ('approved', 'rejected', 'revision_requested')),
   notes            TEXT,
   decided_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -270,6 +329,9 @@ CREATE INDEX IF NOT EXISTS idx_artifacts_job
 CREATE INDEX IF NOT EXISTS idx_embeddings_job
   ON public.embeddings_memory (job_id);
 
+CREATE INDEX IF NOT EXISTS idx_sessions_user
+  ON public.sessions (user_id, started_at DESC);
+
 -- Vector similarity index (HNSW for fast approximate nearest neighbor)
 CREATE INDEX IF NOT EXISTS idx_embeddings_vector
   ON public.embeddings_memory USING hnsw (embedding vector_cosine_ops)
@@ -278,7 +340,10 @@ CREATE INDEX IF NOT EXISTS idx_embeddings_vector
 -- ─────────────────────────────────────────────────────────────
 -- Row Level Security
 -- ─────────────────────────────────────────────────────────────
-ALTER TABLE public.users ENABLE ROW LEVEL SECURITY;
+-- NOTE: All policies compare auth.uid() directly to user_id columns
+-- that reference auth.users(id). No public.users lookup needed.
+-- ─────────────────────────────────────────────────────────────
+ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.devices ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.sessions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.jobs ENABLE ROW LEVEL SECURITY;
@@ -293,14 +358,14 @@ ALTER TABLE public.learning_events ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.embeddings_memory ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.eval_runs ENABLE ROW LEVEL SECURITY;
 
--- Users: read/write own row
-CREATE POLICY "users_own" ON public.users
+-- Profiles: read/write own row
+CREATE POLICY "profiles_own" ON public.profiles
   FOR ALL USING (auth.uid() = id);
 
--- Admins can read all users
-CREATE POLICY "users_admin_read" ON public.users
+-- Profiles: admins can read all
+CREATE POLICY "profiles_admin_read" ON public.profiles
   FOR SELECT USING (
-    EXISTS (SELECT 1 FROM public.users u WHERE u.id = auth.uid() AND u.role = 'admin')
+    EXISTS (SELECT 1 FROM public.profiles p WHERE p.id = auth.uid() AND p.role = 'admin')
   );
 
 -- Jobs: users own their jobs
@@ -310,7 +375,7 @@ CREATE POLICY "jobs_own" ON public.jobs
 -- Jobs: admins and reviewers can read all
 CREATE POLICY "jobs_admin_reviewer_read" ON public.jobs
   FOR SELECT USING (
-    EXISTS (SELECT 1 FROM public.users u WHERE u.id = auth.uid() AND u.role IN ('admin', 'reviewer'))
+    EXISTS (SELECT 1 FROM public.profiles p WHERE p.id = auth.uid() AND p.role IN ('admin', 'reviewer'))
   );
 
 -- Sessions: own sessions
@@ -351,11 +416,11 @@ CREATE POLICY "artifacts_own" ON public.artifacts
     EXISTS (SELECT 1 FROM public.jobs j WHERE j.id = job_id AND j.user_id = auth.uid())
   );
 
--- Approvals: own or reviewer/admin
+-- Approvals: own job or reviewer/admin
 CREATE POLICY "approvals_own" ON public.approvals
   FOR ALL USING (
     EXISTS (SELECT 1 FROM public.jobs j WHERE j.id = job_id AND j.user_id = auth.uid())
-    OR EXISTS (SELECT 1 FROM public.users u WHERE u.id = auth.uid() AND u.role IN ('admin', 'reviewer'))
+    OR EXISTS (SELECT 1 FROM public.profiles p WHERE p.id = auth.uid() AND p.role IN ('admin', 'reviewer'))
   );
 
 -- Print results: via job ownership
@@ -379,5 +444,5 @@ CREATE POLICY "embeddings_memory_own" ON public.embeddings_memory
 -- Eval runs: admin only
 CREATE POLICY "eval_runs_admin" ON public.eval_runs
   FOR ALL USING (
-    EXISTS (SELECT 1 FROM public.users u WHERE u.id = auth.uid() AND u.role = 'admin')
+    EXISTS (SELECT 1 FROM public.profiles p WHERE p.id = auth.uid() AND p.role = 'admin')
   );

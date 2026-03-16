@@ -12,8 +12,8 @@
 AI4U Little Engineer is a production-grade MVP that lets machinists describe a part they need in plain English (via voice), and automatically generates a validated, print-ready CAD model (STEP + STL). The workflow is:
 
 1. **Voice Input** → User describes the part (e.g. "I need a 40mm spacer with M6 through-hole")
-2. **AI Extraction** → GPT-4.1 extracts a structured `PartSpec` and asks clarifying questions
-3. **CAD Generation** → `build123d` Python library generates parametric geometry
+2. **AI Extraction** → Gemini 2.0 Flash (via Live API) or GPT-4.1 extracts a structured `PartSpec` and asks clarifying questions. *Note: V1 uses Whisper transcription before Gemini reasoning.*
+3. **CAD Generation** → `build123d` Python library generates parametric geometry. *Note: FreeCAD is stubbed/disabled in V1.*
 4. **Validation** → Automated printability checks (wall thickness, bounding box, units)
 5. **Review & Approve** → User reviews the STEP/STL and approves for printing
 6. **Print Feedback** → Outcome recorded for continuous improvement
@@ -45,8 +45,8 @@ ai4u-little-engineer/
 |---|---|
 | Frontend | Next.js 15, React 19, TypeScript, Tailwind CSS |
 | Auth & DB | Supabase (PostgreSQL + Auth + Storage) |
-| Voice AI | OpenAI Whisper (STT) + GPT-4.1 (spec extraction) |
-| CAD Engine | Python 3.11 + build123d + CadQuery |
+| Voice AI | Gemini 2.0 Flash (primary) or OpenAI GPT-4.1 (fallback) + Whisper STT |
+| CAD Engine | Python 3.11 + build123d (FreeCAD is stubbed in V1) |
 | API Service | FastAPI + Pydantic v2 |
 | Background Jobs | Trigger.dev v3 |
 | Deployment | Vercel (web) + Google Cloud Run (CAD worker) |
@@ -233,7 +233,7 @@ Browser (PWA)
     │
     ▼
 Next.js App (Vercel)
-    │  ├── /api/live-session  ──► OpenAI Whisper + GPT-4.1
+    │  ├── /api/live-session  ──► Gemini 2.0 Flash (or Whisper + GPT-4.1 fallback)
     │  ├── /api/jobs/[id]/generate ──► Trigger.dev
     │  └── /api/webhooks/cad-worker ◄── CAD Worker callback
     │

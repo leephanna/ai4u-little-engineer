@@ -46,20 +46,50 @@ export function ArtifactList({ artifacts, jobId }: ArtifactListProps) {
             <p className="text-steel-200 text-sm font-medium">
               {KIND_LABELS[artifact.kind] ?? artifact.kind}
             </p>
-            <p className="text-steel-500 text-xs truncate">{artifact.storage_path}</p>
+            {artifact.local_only ? (
+              /* Local-dev artifact — no storage path to show */
+              <p className="text-yellow-500 text-xs">
+                Local dev only — not persisted to Storage
+              </p>
+            ) : (
+              <p className="text-steel-500 text-xs truncate">{artifact.storage_path}</p>
+            )}
           </div>
           <div className="text-right flex-shrink-0">
             <p className="text-steel-400 text-xs">{formatBytes(artifact.file_size_bytes)}</p>
-            <a
-              href={`/api/artifacts/${artifact.id}/download`}
-              className="text-brand-400 hover:text-brand-300 text-xs transition-colors"
-              download
-            >
-              Download
-            </a>
+
+            {artifact.local_only ? (
+              /* Explicitly block download for local-only artifacts */
+              <span
+                className="text-yellow-600 text-xs cursor-not-allowed select-none"
+                title="This artifact was generated in local-dev mode and was never uploaded to Supabase Storage. Re-run in production to get a downloadable file."
+              >
+                Not available
+              </span>
+            ) : (
+              <a
+                href={`/api/artifacts/${artifact.id}/download`}
+                className="text-brand-400 hover:text-brand-300 text-xs transition-colors"
+                download
+              >
+                Download
+              </a>
+            )}
           </div>
         </div>
       ))}
+
+      {/* Banner when any artifact in the list is local-only */}
+      {artifacts.some((a) => a.local_only) && (
+        <div className="pt-3">
+          <div className="bg-yellow-900/30 border border-yellow-700 rounded-lg px-3 py-2 text-yellow-300 text-xs">
+            <strong>Local dev mode:</strong> One or more artifacts were generated with{" "}
+            <code className="font-mono">ALLOW_LOCAL_ARTIFACT_PATHS=true</code> and were
+            never uploaded to Supabase Storage. Downloads are unavailable. Re-run this
+            job in a production environment to generate downloadable artifacts.
+          </div>
+        </div>
+      )}
     </div>
   );
 }
