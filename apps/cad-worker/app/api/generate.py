@@ -33,7 +33,9 @@ from app.storage.supabase_uploader import upload_artifacts_batch
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
-ARTIFACTS_DIR = os.getenv("ARTIFACTS_DIR", "/app/artifacts")
+# In Docker: /app/artifacts (set via ARTIFACTS_DIR env var in Dockerfile)
+# In local dev: /tmp/cad-artifacts (writable without root)
+ARTIFACTS_DIR = os.getenv("ARTIFACTS_DIR", "/tmp/cad-artifacts")
 
 
 @router.post("", response_model=GenerationResult)
@@ -85,6 +87,26 @@ async def generate_cad(request: GenerationRequest) -> GenerationResult:
     generator = get_generator(spec.family)
     generator_name = generator["name"]
     generator_version = generator["version"]
+
+    # Validate dimensions before attempting generation or normalization
+    # This ensures missing required dimensions are caught with a clear error
+    # before get_normalized_params() is called (which may silently accept None).
+    if hasattr(generator.get("validate_params"), "__call__"):
+        dim_errors = generator["validate_params"](dims)
+        if dim_errors:
+            return GenerationResult(
+                status="failed",
+                job_id=request.job_id,
+                part_spec_id=request.part_spec_id,
+                cad_run_id=run_id,
+                engine=request.engine,
+                generator_name=generator_name,
+                generator_version=generator_version,
+                normalized_params={},
+                error=f"Invalid dimensions: {'; '.join(dim_errors)}",
+                failure_stage="invalid_dimensions",
+                duration_ms=round((time.time() - start_time) * 1000, 1),
+            )
 
     # Get normalized params (for receipt)
     try:

@@ -15,7 +15,7 @@ def export_stl(
     output_path: str,
     tolerance: float = 0.001,
     angular_tolerance: float = 0.1,
-    binary: bool = True,
+    ascii_format: bool = False,
 ) -> str:
     """
     Export a build123d part to STL format.
@@ -25,7 +25,8 @@ def export_stl(
         output_path: Full path for the output .stl file
         tolerance: Linear deflection tolerance in mm (default 0.001mm)
         angular_tolerance: Angular deflection tolerance in radians (default 0.1)
-        binary: Export as binary STL (default True, smaller file size)
+        ascii_format: Export as ASCII STL (default False = binary, smaller file size)
+                      Note: build123d 0.10.0 uses ascii_format= not binary=
 
     Returns:
         output_path on success
@@ -48,7 +49,7 @@ def export_stl(
             output_path,
             tolerance=tolerance,
             angular_tolerance=angular_tolerance,
-            binary=binary,
+            ascii_format=ascii_format,
         )
         logger.info(f"STL exported to {output_path} ({os.path.getsize(output_path)} bytes)")
         return output_path
