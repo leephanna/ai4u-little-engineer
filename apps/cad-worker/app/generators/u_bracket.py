@@ -56,9 +56,8 @@ def generate(dims: Dict[str, float], variant_type: str = "requested") -> Any:
     """Generate a U-bracket saddle clamp using build123d."""
     try:
         from build123d import (
-            BuildPart, BuildSketch, Box, Cylinder, Fillet, Mode,
-            Location, Locations, Axis, extrude, Rectangle, Circle,
-            Plane, add
+            BuildPart, Box, Cylinder, fillet, Mode,
+            Location, Locations, Axis
         )
         import build123d as bd
     except ImportError as e:
@@ -135,9 +134,9 @@ def generate(dims: Dict[str, float], variant_type: str = "requested") -> Any:
             try:
                 channel_edges = part.edges().filter_by(Axis.Y)
                 if channel_edges:
-                    Fillet(*channel_edges[:2], radius=min(fillet_r, wall * 0.4))
+                    fillet(channel_edges[:2], radius=min(fillet_r, wall * 0.4))
             except Exception as e:
-                logger.warning(f"Could not apply fillet to channel: {e}")
+                logger.warning(f"Channel fillet skipped: {e}")
 
     return part.part
 

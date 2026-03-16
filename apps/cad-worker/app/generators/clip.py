@@ -33,9 +33,16 @@ DEFAULT_CLEARANCE_MM = 0.3
 FDM_HOLE_OVERSIZE_MM = 0.2
 
 
-def validate_params(dims: Dict[str, float]) -> list[str]:
+def _cable_od(dims: Dict[str, Any]) -> Any:
+    """Accept canonical 'cable_od' or alias 'cable_diameter'."""
+    return dims.get("cable_od") if dims.get("cable_od") is not None else dims.get("cable_diameter")
+
+
+def validate_params(dims: Dict[str, Any]) -> list:
     errors = []
-    for field in ["cable_od", "wall_thickness", "base_width"]:
+    if _cable_od(dims) is None:
+        errors.append("Missing required dimension: cable_od")
+    for field in ["wall_thickness", "base_width"]:
         if dims.get(field) is None:
             errors.append(f"Missing required dimension: {field}")
 
@@ -43,21 +50,20 @@ def validate_params(dims: Dict[str, float]) -> list[str]:
         errors.append(
             f"wall_thickness {dims['wall_thickness']}mm below minimum {MIN_WALL_THICKNESS_MM}mm"
         )
-    if dims.get("cable_od") and dims["cable_od"] < MIN_CABLE_OD_MM:
-        errors.append(f"cable_od {dims['cable_od']}mm below minimum {MIN_CABLE_OD_MM}mm")
+    cod = _cable_od(dims)
+    if cod is not None and cod < MIN_CABLE_OD_MM:
+        errors.append(f"cable_od {cod}mm below minimum {MIN_CABLE_OD_MM}mm")
 
     return errors
 
 
-def generate(dims: Dict[str, float], variant_type: str = "requested") -> Any:
+def generate(dims: Dict[str, Any], variant_type: str = "requested") -> Any:
     """Generate a cable clip using build123d."""
     try:
         from build123d import (
-            BuildPart, BuildSketch, Box, Cylinder, Fillet, Mode,
-            Location, Locations, Axis, Arc, Line, Polyline,
-            make_face, extrude, Plane, add
+            BuildPart, Box, Cylinder, fillet, Mode,
+            Location, Locations, Axis
         )
-        import build123d as bd
     except ImportError as e:
         raise ImportError("build123d is not installed") from e
 
@@ -65,7 +71,7 @@ def generate(dims: Dict[str, float], variant_type: str = "requested") -> Any:
     if errors:
         raise ValueError(f"Invalid cable clip dimensions: {'; '.join(errors)}")
 
-    cable_od = dims["cable_od"]
+    cable_od = _cable_od(dims)
     wall = dims["wall_thickness"]
     base_w = dims["base_width"]
     base_l = dims.get("base_length", base_w)
@@ -137,14 +143,14 @@ def generate(dims: Dict[str, float], variant_type: str = "requested") -> Any:
         try:
             base_edges = part.edges().filter_by(Axis.Z)
             if base_edges:
-                Fillet(*base_edges[:4], radius=min(1.5, base_t * 0.3))
+                fillet(base_edges[:4], radius=min(1.5, base_t * 0.3))
         except Exception as e:
-            logger.warning(f"Could not apply base fillet: {e}")
+            logger.warning(f"Base fillet skipped: {e}")
 
     return part.part
 
 
-def get_normalized_params(dims: Dict[str, float], variant_type: str = "requested") -> Dict[str, Any]:
+def get_normalized_params(dims: Dict[str, Any], variant_type: str = "requested") -> Dict[str, Any]:
     wall = dims["wall_thickness"]
     base_t = dims.get("base_thickness", DEFAULT_BASE_THICKNESS_MM)
     clearance = dims.get("clearance", DEFAULT_CLEARANCE_MM)
@@ -155,7 +161,7 @@ def get_normalized_params(dims: Dict[str, float], variant_type: str = "requested
 
     hole_d = dims.get("hole_diameter", DEFAULT_HOLE_DIAMETER_MM)
     hole_oversize = dims.get("hole_oversize", FDM_HOLE_OVERSIZE_MM)
-    cable_od = dims["cable_od"]
+    cable_od = _cable_od(dims)
 
     return {
         "cable_od_mm": cable_od,

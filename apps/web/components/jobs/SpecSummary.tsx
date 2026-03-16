@@ -37,7 +37,7 @@ export function SpecSummary({ spec }: SpecSummaryProps) {
               <div key={key} className="flex justify-between text-sm">
                 <span className="text-steel-400 capitalize">{key.replace(/_/g, " ")}</span>
                 <span className="text-steel-200 font-mono">
-                  {typeof val === "number" ? val.toFixed(2) : val} {spec.units}
+                  {typeof val === "number" ? val.toFixed(2) : String(val ?? "")} {spec.units}
                 </span>
               </div>
             ))}

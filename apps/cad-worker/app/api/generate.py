@@ -1,26 +1,34 @@
 """
 Generate API Endpoint
 POST /generate — Generate a CAD model from a PartSpec.
+
+Fix C: After exporting STEP/STL files, this endpoint now uploads them to
+Supabase Storage via app.storage.supabase_uploader and includes the real
+storage_path in every ArtifactResult. The Trigger.dev pipeline can then
+record the canonical path directly without a TODO stub.
 """
 
 import os
 import time
 import uuid
-import json
 import logging
 from pathlib import Path
-from typing import Any
 
 from fastapi import APIRouter, HTTPException
-from fastapi.responses import JSONResponse
 
-from app.schemas.generation_request import GenerationRequest, GenerationResult, ArtifactResult, ValidationReport
+from app.schemas.generation_request import (
+    GenerationRequest,
+    GenerationResult,
+    ArtifactResult,
+    ValidationReport,
+)
 from app.schemas.part_spec import PartSpec
 from app.generators import get_generator, is_supported, list_partial_families
 from app.validators.dimensions import validate_bounding_box, validate_volume
 from app.validators.printable import score_printability, check_wall_thickness
 from app.exporters.step_export import export_step
 from app.exporters.stl_export import export_stl
+from app.storage.supabase_uploader import upload_artifacts_batch
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -33,8 +41,9 @@ async def generate_cad(request: GenerationRequest) -> GenerationResult:
     """
     Generate a CAD model from a PartSpec.
 
-    IMPORTANT: This endpoint ONLY returns status='success' when the CAD worker
-    successfully generates AND exports the files. Never returns fake success.
+    Returns status='success' only when CAD generation AND file export succeed.
+    Artifacts include real Supabase Storage paths when SUPABASE_URL and
+    SUPABASE_SERVICE_ROLE_KEY are configured.
     """
     start_time = time.time()
     run_id = str(uuid.uuid4())
@@ -50,7 +59,7 @@ async def generate_cad(request: GenerationRequest) -> GenerationResult:
 
     # Check engine
     if request.engine == "freecad":
-        from app.adapters.freecad_adapter import is_available, FREECAD_ENABLED
+        from app.adapters.freecad_adapter import FREECAD_ENABLED
         if not FREECAD_ENABLED:
             raise HTTPException(
                 status_code=400,
@@ -67,8 +76,10 @@ async def generate_cad(request: GenerationRequest) -> GenerationResult:
             )
         raise HTTPException(
             status_code=400,
-            detail=f"Unsupported part family: '{spec.family}'. "
-                   f"Supported: {', '.join(['spacer', 'l_bracket', 'u_bracket', 'hole_plate', 'cable_clip', 'enclosure'])}",
+            detail=(
+                f"Unsupported part family: '{spec.family}'. "
+                f"Supported: spacer, l_bracket, u_bracket, hole_plate, cable_clip, enclosure"
+            ),
         )
 
     generator = get_generator(spec.family)
@@ -98,7 +109,6 @@ async def generate_cad(request: GenerationRequest) -> GenerationResult:
     try:
         part = generator["generate"](dims, request.variant_type)
     except ValueError as e:
-        # Invalid dimensions — user-fixable
         return GenerationResult(
             status="failed",
             job_id=request.job_id,
@@ -113,11 +123,7 @@ async def generate_cad(request: GenerationRequest) -> GenerationResult:
             duration_ms=round((time.time() - start_time) * 1000, 1),
         )
     except ImportError as e:
-        # build123d not installed
-        raise HTTPException(
-            status_code=503,
-            detail=f"CAD engine unavailable: {e}",
-        )
+        raise HTTPException(status_code=503, detail=f"CAD engine unavailable: {e}")
     except Exception as e:
         logger.error(f"Generator exception for {spec.family}: {e}", exc_info=True)
         return GenerationResult(
@@ -135,12 +141,11 @@ async def generate_cad(request: GenerationRequest) -> GenerationResult:
         )
 
     # Validate geometry
-    validation_warnings = []
-    validation_errors = []
+    validation_warnings: list[str] = []
+    validation_errors: list[str] = []
 
     bbox_ok, bbox, bbox_warnings = validate_bounding_box(
-        part,
-        max_dimensions_mm=spec.constraints.must_fit_within,
+        part, max_dimensions_mm=spec.constraints.must_fit_within
     )
     validation_warnings.extend(bbox_warnings)
 
@@ -152,9 +157,7 @@ async def generate_cad(request: GenerationRequest) -> GenerationResult:
     validation_warnings.extend(wall_warnings)
 
     printability_score, print_warnings, print_errors = score_printability(
-        part,
-        wall_thickness_mm=wall_mm,
-        bounding_box=bbox,
+        part, wall_thickness_mm=wall_mm, bounding_box=bbox
     )
     validation_warnings.extend(print_warnings)
     validation_errors.extend(print_errors)
@@ -170,7 +173,6 @@ async def generate_cad(request: GenerationRequest) -> GenerationResult:
         errors=validation_errors,
     )
 
-    # Strict validation gate
     if request.strict_validation and validation_errors:
         return GenerationResult(
             status="failed",
@@ -187,23 +189,23 @@ async def generate_cad(request: GenerationRequest) -> GenerationResult:
             duration_ms=round((time.time() - start_time) * 1000, 1),
         )
 
-    # Export files
-    artifacts = []
+    # ── Export files ─────────────────────────────────────────────
+    local_artifacts: list[dict] = []
     artifact_dir = Path(ARTIFACTS_DIR) / request.job_id / run_id
     artifact_dir.mkdir(parents=True, exist_ok=True)
 
-    export_errors = []
+    export_errors: list[str] = []
 
     if "step" in request.export_formats:
         step_path = artifact_dir / f"{spec.family}_{request.variant_type}.step"
         try:
             export_step(part, str(step_path))
-            artifacts.append(ArtifactResult(
-                kind="step",
-                local_path=str(step_path),
-                mime_type="application/step",
-                file_size_bytes=step_path.stat().st_size,
-            ))
+            local_artifacts.append({
+                "kind": "step",
+                "local_path": str(step_path),
+                "mime_type": "application/step",
+                "file_size_bytes": step_path.stat().st_size,
+            })
         except Exception as e:
             export_errors.append(f"STEP export failed: {e}")
             logger.error(f"STEP export error: {e}", exc_info=True)
@@ -212,18 +214,17 @@ async def generate_cad(request: GenerationRequest) -> GenerationResult:
         stl_path = artifact_dir / f"{spec.family}_{request.variant_type}.stl"
         try:
             export_stl(part, str(stl_path))
-            artifacts.append(ArtifactResult(
-                kind="stl",
-                local_path=str(stl_path),
-                mime_type="model/stl",
-                file_size_bytes=stl_path.stat().st_size,
-            ))
+            local_artifacts.append({
+                "kind": "stl",
+                "local_path": str(stl_path),
+                "mime_type": "model/stl",
+                "file_size_bytes": stl_path.stat().st_size,
+            })
         except Exception as e:
             export_errors.append(f"STL export failed: {e}")
             logger.error(f"STL export error: {e}", exc_info=True)
 
-    if export_errors and not artifacts:
-        # All exports failed
+    if export_errors and not local_artifacts:
         return GenerationResult(
             status="failed",
             job_id=request.job_id,
@@ -238,6 +239,26 @@ async def generate_cad(request: GenerationRequest) -> GenerationResult:
             failure_stage="export_exception",
             duration_ms=round((time.time() - start_time) * 1000, 1),
         )
+
+    # ── Upload artifacts to Supabase Storage ─────────────────────
+    # Fix C: upload happens here in the worker so the Trigger.dev pipeline
+    # receives real storage_path values — no TODO stub needed.
+    uploaded = upload_artifacts_batch(
+        artifacts=local_artifacts,
+        job_id=request.job_id,
+        cad_run_id=run_id,
+    )
+
+    # Build ArtifactResult list — include storage_path in the response
+    artifacts: list[ArtifactResult] = []
+    for item in uploaded:
+        artifacts.append(ArtifactResult(
+            kind=item["kind"],
+            local_path=item["local_path"],
+            storage_path=item.get("storage_path"),   # None if Supabase not configured
+            mime_type=item["mime_type"],
+            file_size_bytes=item.get("file_size_bytes"),
+        ))
 
     duration_ms = round((time.time() - start_time) * 1000, 1)
     logger.info(

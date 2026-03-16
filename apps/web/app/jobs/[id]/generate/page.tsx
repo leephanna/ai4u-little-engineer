@@ -173,7 +173,7 @@ export default function GeneratePage() {
                   <div key={k} className="flex justify-between">
                     <span className="text-steel-500 capitalize">{k.replace(/_/g, " ")}</span>
                     <span className="text-steel-200 font-mono">
-                      {typeof v === "number" ? v.toFixed(2) : v} {selectedSpec.units}
+                      {typeof v === "number" ? v.toFixed(2) : String(v ?? "")} {selectedSpec.units}
                     </span>
                   </div>
                 ))}

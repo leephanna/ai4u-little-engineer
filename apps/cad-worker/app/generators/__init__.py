@@ -48,19 +48,28 @@ GENERATOR_REGISTRY: Dict[str, Dict[str, Any]] = {
     },
 }
 
-# Families with PARTIAL implementations (stub only)
-# TODO: Implement these generators before enabling in production
+# Families defined in the schema/prompts but whose generators are not yet
+# implemented in V1. The API returns a 400 with this message rather than a 500.
 PARTIAL_GENERATORS = {
-    "flat_bracket": "TODO: Implement flat_bracket generator (similar to hole_plate but without hole pattern)",
-    "standoff_block": "TODO: Implement standoff_block generator",
-    "adapter_bushing": "TODO: Implement adapter_bushing generator (similar to spacer with stepped bore)",
-    "simple_jig": "TODO: Implement simple_jig generator",
+    "flat_bracket":    "Generator not yet implemented in V1. Use hole_plate for a similar result.",
+    "standoff_block":  "Generator not yet implemented in V1. Use spacer for a similar result.",
+    "adapter_bushing": "Generator not yet implemented in V1. Use spacer for a similar result.",
+    "simple_jig":      "Generator not yet implemented in V1.",
 }
 
 
-def get_generator(family: str) -> Optional[Dict[str, Any]]:
-    """Get the generator for a given part family. Returns None if not found."""
-    return GENERATOR_REGISTRY.get(family)
+def get_generator(family: str) -> Dict[str, Any]:
+    """
+    Get the generator for a given part family.
+    Raises KeyError if the family is not in the MVP registry.
+    Callers should check is_supported() first.
+    """
+    if family not in GENERATOR_REGISTRY:
+        raise KeyError(
+            f"No generator registered for family '{family}'. "
+            f"Supported: {', '.join(GENERATOR_REGISTRY.keys())}"
+        )
+    return GENERATOR_REGISTRY[family]
 
 
 def is_supported(family: str) -> bool:

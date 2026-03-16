@@ -3,11 +3,9 @@
 import { useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { VoiceSession } from "@/components/voice/VoiceSession";
-import { createClient } from "@/lib/supabase/client";
 
 export default function NewJobPage() {
   const router = useRouter();
-  const [sessionId] = useState(() => crypto.randomUUID());
   const [jobId, setJobId] = useState<string | undefined>(undefined);
   const [specReady, setSpecReady] = useState(false);
 
@@ -16,10 +14,9 @@ export default function NewJobPage() {
   }, []);
 
   const handleSpecReady = useCallback(
-    (spec: Record<string, unknown>) => {
+    (_spec: Record<string, unknown>) => {
       setSpecReady(true);
       if (jobId) {
-        // Navigate to job detail after a short delay
         setTimeout(() => {
           router.push(`/jobs/${jobId}`);
         }, 1500);
@@ -57,8 +54,8 @@ export default function NewJobPage() {
 
       {/* Voice session fills remaining height */}
       <div className="flex-1 min-h-0">
+        {/* sessionId is now managed server-side inside VoiceSession */}
         <VoiceSession
-          sessionId={sessionId}
           jobId={jobId}
           onJobCreated={handleJobCreated}
           onSpecReady={handleSpecReady}

@@ -53,10 +53,9 @@ def generate(dims: Dict[str, float], variant_type: str = "requested") -> Any:
     """Generate an enclosure box using build123d."""
     try:
         from build123d import (
-            BuildPart, Box, Cylinder, Fillet, Shell, Mode,
-            Location, Locations, Axis, Plane, add
+            BuildPart, Box, Cylinder, fillet, Mode,
+            Location, Locations, Axis
         )
-        import build123d as bd
     except ImportError as e:
         raise ImportError("build123d is not installed") from e
 
@@ -100,7 +99,7 @@ def generate(dims: Dict[str, float], variant_type: str = "requested") -> Any:
             try:
                 outer_edges = part.edges().filter_by(Axis.Z)
                 if outer_edges:
-                    Fillet(*outer_edges, radius=min(fillet_r, min(ol, ow) * 0.1))
+                    fillet(outer_edges, radius=min(fillet_r, min(ol, ow) * 0.1))
             except Exception as e:
                 logger.warning(f"Could not apply corner fillets: {e}")
 

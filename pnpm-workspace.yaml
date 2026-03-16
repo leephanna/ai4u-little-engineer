@@ -1,4 +1,4 @@
 packages:
-  - 'apps/web'
-  - 'apps/trigger'
-  - 'packages/shared'
+  - "apps/web"
+  - "apps/trigger"
+  - "packages/*"

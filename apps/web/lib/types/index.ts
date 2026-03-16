@@ -205,6 +205,20 @@ export const CAD_RUN_STATUS_COLORS: Record<CadRunStatus, string> = {
   failed: "bg-red-100 text-red-700",
 };
 
+/**
+ * Validation report returned by the CAD worker and stored in
+ * cad_runs.validation_report_json.
+ */
+export interface ValidationReport {
+  printability_score: number | null;
+  bounding_box_ok: boolean;
+  wall_thickness_ok: boolean;
+  units_ok: boolean;
+  bounding_box_mm: [number, number, number] | null;
+  warnings: string[];
+  errors: string[];
+}
+
 /** Returns true when a job is in a terminal (non-recoverable) state. */
 export function isTerminalJobStatus(status: JobStatus): boolean {
   return status === "printed" || status === "rejected";

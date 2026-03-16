@@ -33,10 +33,11 @@ class TestSpacerValidator:
         errors = spacer_validate(dims)
         assert any("outer_diameter" in e for e in errors)
 
-    def test_missing_length(self):
+    def test_missing_height(self):
+        """Canonical key is 'height' (was 'length' before spec alignment)."""
         dims = {"outer_diameter": 10.0}
         errors = spacer_validate(dims)
-        assert any("length" in e for e in errors)
+        assert any("height" in e for e in errors)
 
     def test_wall_too_thin(self):
         dims = {"outer_diameter": 10.0, "inner_diameter": 9.0, "length": 10.0}

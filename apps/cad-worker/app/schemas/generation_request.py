@@ -1,5 +1,9 @@
 """
 Pydantic schemas for generation requests and results.
+
+Fix C: ArtifactResult now includes an optional storage_path field.
+The CAD worker populates this after uploading to Supabase Storage.
+The Trigger.dev pipeline reads storage_path directly — no TODO stub.
 """
 
 from typing import Dict, List, Literal, Optional, Any
@@ -32,9 +36,17 @@ class ValidationReport(BaseModel):
 
 
 class ArtifactResult(BaseModel):
-    """A generated artifact file."""
+    """
+    A generated artifact file.
+
+    storage_path is the canonical path in the Supabase Storage bucket
+    'cad-artifacts'. It is set by the CAD worker after upload and used
+    by the Trigger.dev pipeline to record the artifact in the DB.
+    If Supabase is not configured (local dev), storage_path is None.
+    """
     kind: Literal["step", "stl", "png", "json_receipt", "log"]
     local_path: str
+    storage_path: Optional[str] = None   # Real path in cad-artifacts bucket
     mime_type: str
     file_size_bytes: Optional[int] = None
 

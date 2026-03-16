@@ -5,15 +5,18 @@
   "description": "AI4U Little Engineer — Voice-to-CAD phone-first web app for machinists",
   "workspaces": [
     "apps/web",
+    "apps/trigger",
     "packages/*"
   ],
   "scripts": {
-    "dev": "turbo run dev",
+    "dev": "turbo run dev --filter=./apps/web",
     "build": "turbo run build",
     "lint": "turbo run lint",
     "typecheck": "turbo run typecheck",
     "test": "turbo run test",
-    "clean": "turbo run clean"
+    "clean": "turbo run clean",
+    "trigger:dev": "turbo run dev --filter=./apps/trigger",
+    "trigger:deploy": "turbo run deploy --filter=./apps/trigger"
   },
   "devDependencies": {
     "turbo": "^2.0.0",

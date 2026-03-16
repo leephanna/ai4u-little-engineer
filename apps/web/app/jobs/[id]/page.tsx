@@ -1,7 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { redirect, notFound } from "next/navigation";
 import Link from "next/link";
-import type { Job, PartSpec, CadRun, Artifact, Approval } from "@/lib/types";
+import type { Job, PartSpec, CadRun, Artifact, Approval, ValidationReport } from "@/lib/types";
 import {
   JOB_STATUS_COLORS,
   JOB_STATUS_LABELS,
@@ -141,7 +141,7 @@ export default async function JobDetailPage({ params }: PageProps) {
               </div>
 
               {latestRun.validation_report_json && (
-                <ValidationBadge report={latestRun.validation_report_json} />
+                <ValidationBadge report={latestRun.validation_report_json as unknown as ValidationReport} />
               )}
 
               {latestRun.error_text && (

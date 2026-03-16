@@ -4,6 +4,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 import type { VoiceTurn } from "@/lib/types";
 
 type SessionState =
+  | "bootstrapping"
   | "idle"
   | "connecting"
   | "listening"
@@ -13,7 +14,6 @@ type SessionState =
 
 interface VoiceSessionProps {
   jobId?: string;
-  sessionId: string;
   onTranscript?: (text: string, speaker: "user" | "assistant") => void;
   onJobCreated?: (jobId: string) => void;
   onSpecReady?: (spec: Record<string, unknown>) => void;
@@ -21,22 +21,67 @@ interface VoiceSessionProps {
 
 export function VoiceSession({
   jobId,
-  sessionId,
   onTranscript,
   onJobCreated,
   onSpecReady,
 }: VoiceSessionProps) {
-  const [state, setState] = useState<SessionState>("idle");
+  const [state, setState] = useState<SessionState>("bootstrapping");
   const [turns, setTurns] = useState<VoiceTurn[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [isRecording, setIsRecording] = useState(false);
-  const [currentTranscript, setCurrentTranscript] = useState("");
+
+  // sessionId is now a real UUID from the server (public.sessions row)
+  const [sessionId, setSessionId] = useState<string | null>(null);
+  const [currentJobId, setCurrentJobId] = useState<string | undefined>(jobId);
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const scrollRef = useRef<HTMLDivElement>(null);
 
-  // Auto-scroll to bottom when new turns arrive
+  // ── Bootstrap: create a real sessions row on mount ──────────
+  useEffect(() => {
+    let cancelled = false;
+
+    async function bootstrapSession() {
+      try {
+        const res = await fetch("/api/sessions", { method: "POST" });
+        if (!res.ok) {
+          const data = await res.json();
+          throw new Error(data.error ?? `HTTP ${res.status}`);
+        }
+        const data = await res.json();
+        if (!cancelled) {
+          setSessionId(data.session_id);
+          setState("idle");
+        }
+      } catch (err) {
+        if (!cancelled) {
+          const msg = err instanceof Error ? err.message : "Failed to start session";
+          setError(msg);
+          setState("error");
+        }
+      }
+    }
+
+    bootstrapSession();
+    return () => { cancelled = true; };
+  }, []);
+
+  // ── Close session on unmount ─────────────────────────────────
+  useEffect(() => {
+    return () => {
+      if (sessionId) {
+        // Fire-and-forget: mark session as ended
+        fetch("/api/sessions", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ session_id: sessionId }),
+        }).catch(() => {/* ignore cleanup errors */});
+      }
+    };
+  }, [sessionId]);
+
+  // ── Auto-scroll transcript ───────────────────────────────────
   useEffect(() => {
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
@@ -44,6 +89,10 @@ export function VoiceSession({
   }, [turns]);
 
   const startRecording = useCallback(async () => {
+    if (!sessionId) {
+      setError("Session not ready. Please wait a moment.");
+      return;
+    }
     try {
       setState("connecting");
       setError(null);
@@ -59,9 +108,7 @@ export function VoiceSession({
       chunksRef.current = [];
 
       mediaRecorder.ondataavailable = (e) => {
-        if (e.data.size > 0) {
-          chunksRef.current.push(e.data);
-        }
+        if (e.data.size > 0) chunksRef.current.push(e.data);
       };
 
       mediaRecorder.onstop = async () => {
@@ -70,7 +117,7 @@ export function VoiceSession({
         stream.getTracks().forEach((t) => t.stop());
       };
 
-      mediaRecorder.start(250); // Collect in 250ms chunks
+      mediaRecorder.start(250);
       setState("listening");
       setIsRecording(true);
     } catch (err) {
@@ -78,7 +125,8 @@ export function VoiceSession({
       setError(msg);
       setState("error");
     }
-  }, [sessionId, jobId]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessionId, currentJobId]);
 
   const stopRecording = useCallback(() => {
     if (mediaRecorderRef.current && isRecording) {
@@ -89,21 +137,20 @@ export function VoiceSession({
   }, [isRecording]);
 
   const processAudio = async (audioBlob: Blob) => {
+    if (!sessionId) return;
+
     try {
       setState("processing");
 
-      // Convert to base64 for API
       const arrayBuffer = await audioBlob.arrayBuffer();
-      const base64 = btoa(
-        String.fromCharCode(...new Uint8Array(arrayBuffer))
-      );
+      const base64 = btoa(String.fromCharCode(...new Uint8Array(arrayBuffer)));
 
       const response = await fetch("/api/live-session", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          session_id: sessionId,
-          job_id: jobId,
+          session_id: sessionId,   // Real UUID from public.sessions
+          job_id: currentJobId ?? null,
           audio_base64: base64,
           mime_type: audioBlob.type,
         }),
@@ -115,12 +162,11 @@ export function VoiceSession({
 
       const data = await response.json();
 
-      // Add user transcript turn
       if (data.user_transcript) {
         const userTurn: VoiceTurn = {
           id: crypto.randomUUID(),
           session_id: sessionId,
-          job_id: jobId ?? null,
+          job_id: currentJobId ?? null,
           speaker: "user",
           transcript_text: data.user_transcript,
           audio_url: null,
@@ -130,12 +176,11 @@ export function VoiceSession({
         onTranscript?.(data.user_transcript, "user");
       }
 
-      // Add assistant response turn
       if (data.assistant_response) {
         const assistantTurn: VoiceTurn = {
           id: crypto.randomUUID(),
           session_id: sessionId,
-          job_id: jobId ?? null,
+          job_id: currentJobId ?? null,
           speaker: "assistant",
           transcript_text: data.assistant_response,
           audio_url: null,
@@ -145,7 +190,6 @@ export function VoiceSession({
         onTranscript?.(data.assistant_response, "assistant");
         setState("speaking");
 
-        // Speak the response (TTS)
         if ("speechSynthesis" in window) {
           const utterance = new SpeechSynthesisUtterance(data.assistant_response);
           utterance.rate = 1.1;
@@ -158,12 +202,11 @@ export function VoiceSession({
         setState("idle");
       }
 
-      // Handle job creation
-      if (data.job_id && !jobId) {
+      if (data.job_id && !currentJobId) {
+        setCurrentJobId(data.job_id);
         onJobCreated?.(data.job_id);
       }
 
-      // Handle spec ready
       if (data.part_spec) {
         onSpecReady?.(data.part_spec);
       }
@@ -176,14 +219,15 @@ export function VoiceSession({
 
   const stateConfig: Record<
     SessionState,
-    { label: string; color: string; pulse: boolean }
+    { label: string; color: string; pulse: boolean; disabled: boolean }
   > = {
-    idle: { label: "Tap to speak", color: "bg-steel-600", pulse: false },
-    connecting: { label: "Connecting...", color: "bg-yellow-600", pulse: true },
-    listening: { label: "Listening...", color: "bg-red-600", pulse: true },
-    processing: { label: "Processing...", color: "bg-brand-600", pulse: true },
-    speaking: { label: "Speaking...", color: "bg-green-600", pulse: false },
-    error: { label: "Error — tap to retry", color: "bg-red-700", pulse: false },
+    bootstrapping: { label: "Starting session...", color: "bg-steel-600", pulse: true, disabled: true },
+    idle:          { label: "Tap to speak",        color: "bg-steel-600", pulse: false, disabled: false },
+    connecting:    { label: "Connecting...",        color: "bg-yellow-600", pulse: true, disabled: true },
+    listening:     { label: "Listening...",         color: "bg-red-600",   pulse: true, disabled: false },
+    processing:    { label: "Processing...",        color: "bg-brand-600", pulse: true, disabled: true },
+    speaking:      { label: "Speaking...",          color: "bg-green-600", pulse: false, disabled: true },
+    error:         { label: "Error — tap to retry", color: "bg-red-700",  pulse: false, disabled: false },
   };
 
   const config = stateConfig[state];
@@ -191,11 +235,19 @@ export function VoiceSession({
   return (
     <div className="flex flex-col h-full">
       {/* Transcript timeline */}
-      <div
-        ref={scrollRef}
-        className="flex-1 overflow-y-auto p-4 space-y-3 min-h-0"
-      >
-        {turns.length === 0 && (
+      <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 space-y-3 min-h-0">
+        {state === "bootstrapping" && (
+          <div className="text-center text-steel-500 text-sm py-8">
+            <div className="flex justify-center gap-1 mb-3">
+              <span className="w-2 h-2 bg-steel-500 rounded-full animate-bounce [animation-delay:-0.3s]" />
+              <span className="w-2 h-2 bg-steel-500 rounded-full animate-bounce [animation-delay:-0.15s]" />
+              <span className="w-2 h-2 bg-steel-500 rounded-full animate-bounce" />
+            </div>
+            <p>Starting session…</p>
+          </div>
+        )}
+
+        {state !== "bootstrapping" && turns.length === 0 && (
           <div className="text-center text-steel-500 text-sm py-8">
             <p className="text-2xl mb-2">🎙️</p>
             <p>Tap the mic button and describe the part you need.</p>
@@ -248,7 +300,7 @@ export function VoiceSession({
           onPointerDown={startRecording}
           onPointerUp={stopRecording}
           onPointerLeave={stopRecording}
-          disabled={state === "processing" || state === "connecting" || state === "speaking"}
+          disabled={config.disabled}
           className={`
             relative w-20 h-20 rounded-full flex items-center justify-center
             transition-all duration-150 touch-target
@@ -262,11 +314,7 @@ export function VoiceSession({
           {config.pulse && (
             <span className={`absolute inset-0 rounded-full ${config.color} opacity-50 animate-ping`} />
           )}
-          <svg
-            className="w-8 h-8 text-white relative z-10"
-            fill="currentColor"
-            viewBox="0 0 24 24"
-          >
+          <svg className="w-8 h-8 text-white relative z-10" fill="currentColor" viewBox="0 0 24 24">
             <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
             <path d="M19 10v2a7 7 0 0 1-14 0v-2H3v2a9 9 0 0 0 8 8.94V23h2v-2.06A9 9 0 0 0 21 12v-2h-2z" />
           </svg>

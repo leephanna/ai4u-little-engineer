@@ -1,35 +1,58 @@
 /**
- * AI4U Little Engineer — Supported Part Families (V1)
- * These are the ONLY families supported in V1. Do not extend without updating
- * the CAD worker generators and the eval suite.
+ * AI4U Little Engineer — Part Families (V1)
+ *
+ * Fix E (MVP scope discipline):
+ *   MVP_PART_FAMILIES — the 6 families with complete build123d generators.
+ *   PARTIAL_PART_FAMILIES — families defined in the schema/prompts but whose
+ *     generators are NOT yet implemented. The CAD worker will reject these with
+ *     a 400 "PARTIAL" error rather than silently failing.
+ *   PART_FAMILIES — union of both, used only for type-checking and UI display.
+ *
+ * Do NOT add a family to MVP_PART_FAMILIES until its generator passes the
+ * eval suite (eval/generators/).
  */
 
-export const PART_FAMILIES = [
+// ── Fully implemented in V1 ──────────────────────────────────
+export const MVP_PART_FAMILIES = [
   "spacer",
-  "flat_bracket",
   "l_bracket",
   "u_bracket",
   "hole_plate",
-  "standoff_block",
   "cable_clip",
   "enclosure",
+] as const;
+
+export type MvpPartFamily = (typeof MVP_PART_FAMILIES)[number];
+
+// ── Defined but generator not yet implemented ────────────────
+export const PARTIAL_PART_FAMILIES = [
+  "flat_bracket",
+  "standoff_block",
   "adapter_bushing",
   "simple_jig",
+] as const;
+
+export type PartialPartFamily = (typeof PARTIAL_PART_FAMILIES)[number];
+
+// ── Union (all families known to the system) ─────────────────
+export const PART_FAMILIES = [
+  ...MVP_PART_FAMILIES,
+  ...PARTIAL_PART_FAMILIES,
 ] as const;
 
 export type PartFamily = (typeof PART_FAMILIES)[number];
 
 export const PART_FAMILY_LABELS: Record<PartFamily, string> = {
-  spacer: "Spacer",
-  flat_bracket: "Flat Bracket",
-  l_bracket: "L-Bracket",
-  u_bracket: "U-Bracket / Saddle Clamp",
-  hole_plate: "Hole Plate / Mounting Plate",
-  standoff_block: "Standoff Block",
-  cable_clip: "Cable Clip",
-  enclosure: "Enclosure / Box",
+  spacer:          "Spacer",
+  flat_bracket:    "Flat Bracket",
+  l_bracket:       "L-Bracket",
+  u_bracket:       "U-Bracket / Saddle Clamp",
+  hole_plate:      "Hole Plate / Mounting Plate",
+  standoff_block:  "Standoff Block",
+  cable_clip:      "Cable Clip",
+  enclosure:       "Enclosure / Box",
   adapter_bushing: "Adapter Bushing",
-  simple_jig: "Simple Jig / Alignment Fixture",
+  simple_jig:      "Simple Jig / Alignment Fixture",
 };
 
 export const PART_FAMILY_DESCRIPTIONS: Record<PartFamily, string> = {
@@ -57,16 +80,16 @@ export const PART_FAMILY_DESCRIPTIONS: Record<PartFamily, string> = {
 
 /** Required dimension fields per family */
 export const REQUIRED_DIMENSIONS: Record<PartFamily, string[]> = {
-  spacer: ["outer_diameter", "inner_diameter", "length"],
-  flat_bracket: ["length", "width", "thickness", "hole_count", "hole_diameter"],
-  l_bracket: ["leg_a", "leg_b", "thickness", "width"],
-  u_bracket: ["pipe_od", "wall_thickness", "flange_width", "flange_length"],
-  hole_plate: ["length", "width", "thickness", "hole_count", "hole_diameter"],
-  standoff_block: ["length", "width", "height", "hole_diameter"],
-  cable_clip: ["cable_od", "wall_thickness", "base_width"],
-  enclosure: ["inner_length", "inner_width", "inner_height", "wall_thickness"],
+  spacer:          ["outer_diameter", "inner_diameter", "length"],
+  flat_bracket:    ["length", "width", "thickness", "hole_count", "hole_diameter"],
+  l_bracket:       ["leg_a", "leg_b", "thickness", "width"],
+  u_bracket:       ["pipe_od", "wall_thickness", "flange_width", "flange_length"],
+  hole_plate:      ["length", "width", "thickness", "hole_count", "hole_diameter"],
+  standoff_block:  ["length", "width", "height", "hole_diameter"],
+  cable_clip:      ["cable_od", "wall_thickness", "base_width"],
+  enclosure:       ["inner_length", "inner_width", "inner_height", "wall_thickness"],
   adapter_bushing: ["outer_diameter", "inner_diameter", "length"],
-  simple_jig: ["length", "width", "height"],
+  simple_jig:      ["length", "width", "height"],
 };
 
 export const VARIANT_TYPES = [
@@ -79,10 +102,10 @@ export const VARIANT_TYPES = [
 export type VariantType = (typeof VARIANT_TYPES)[number];
 
 export const VARIANT_LABELS: Record<VariantType, string> = {
-  requested: "Requested Design",
-  stronger: "Stronger Version",
+  requested:       "Requested Design",
+  stronger:        "Stronger Version",
   print_optimized: "Print-Optimized",
-  alternate: "Alternate Concept",
+  alternate:       "Alternate Concept",
 };
 
 export const SUPPORTED_UNITS = ["mm", "in"] as const;
@@ -104,8 +127,8 @@ export type Material = (typeof SUPPORTED_MATERIALS)[number];
 
 /** Confidence thresholds per spec section 12 */
 export const CONFIDENCE_THRESHOLDS = {
-  MUST_CLARIFY: 0.65,
-  CONCEPT_PREVIEW_ONLY: 0.85,
+  MUST_CLARIFY:          0.65,
+  CONCEPT_PREVIEW_ONLY:  0.85,
 } as const;
 
 export const JOB_STATUSES = [

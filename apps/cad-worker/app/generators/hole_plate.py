@@ -104,8 +104,8 @@ def generate(dims: Dict[str, float], variant_type: str = "requested") -> Any:
     """Generate a hole plate using build123d."""
     try:
         from build123d import (
-            BuildPart, Box, Cylinder, Fillet, Mode,
-            Location, Locations, Axis, CounterSinkHole
+            BuildPart, Box, Cylinder, fillet, Mode,
+            Location, Locations, Axis
         )
     except ImportError as e:
         raise ImportError("build123d is not installed") from e
@@ -159,7 +159,7 @@ def generate(dims: Dict[str, float], variant_type: str = "requested") -> Any:
             try:
                 vertical_edges = part.edges().filter_by(Axis.Z)
                 if vertical_edges:
-                    Fillet(*vertical_edges, radius=min(fillet_r, min(length, width) * 0.1))
+                    fillet(vertical_edges, radius=min(fillet_r, min(length, width) * 0.1))
             except Exception as e:
                 logger.warning(f"Could not apply corner fillets: {e}")
 
