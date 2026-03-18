@@ -1,10 +1,14 @@
 /**
  * POST /api/jobs/[id]/generate
- * Triggers a CAD generation job via Trigger.dev.
+ * Triggers a CAD generation job via the Trigger.dev v3 SDK.
+ *
+ * The SDK reads TRIGGER_SECRET_KEY and TRIGGER_API_URL from environment
+ * variables automatically — no manual configure() call needed.
  */
 
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { tasks } from "@trigger.dev/sdk/v3";
 
 interface GenerateBody {
   part_spec_id: string;
@@ -77,7 +81,7 @@ export async function POST(
       );
     }
 
-    // Create a CAD run record (queued)
+    // Create a CAD run record (queued) — Trigger.dev pipeline will update it
     const { data: cadRun, error: runError } = await supabase
       .from("cad_runs")
       .insert({
@@ -107,54 +111,57 @@ export async function POST(
       .update({ status: "generating", latest_run_id: cadRun.id })
       .eq("id", jobId);
 
-    // Trigger the Trigger.dev workflow
-    // In production, this would use the Trigger.dev SDK:
-    //   import { tasks } from "@trigger.dev/sdk/v3";
-    //   await tasks.trigger("cad-generation-pipeline", { ... });
-    //
-    // For now, we call the Trigger.dev API directly via HTTP
-    const triggerApiKey = process.env.TRIGGER_SECRET_KEY;
-    let triggerJobId: string | null = null;
+    // ── Trigger the Trigger.dev v3 pipeline ───────────────────
+    // The SDK reads TRIGGER_SECRET_KEY and TRIGGER_API_URL automatically.
+    // If TRIGGER_SECRET_KEY is not set, tasks.trigger will throw — we catch
+    // that and return a 503 so the caller knows the background job was not
+    // dispatched (the cad_run row stays in "queued" for manual recovery).
+    let triggerRunId: string | null = null;
 
-    if (triggerApiKey) {
+    if (!process.env.TRIGGER_SECRET_KEY) {
+      console.warn(
+        "TRIGGER_SECRET_KEY not set — Trigger.dev dispatch skipped. " +
+          "The cad_run row has been created in 'queued' status."
+      );
+    } else {
       try {
-        const triggerRes = await fetch(
-          `${process.env.TRIGGER_API_URL ?? "https://api.trigger.dev"}/api/v1/tasks/cad-generation-pipeline/trigger`,
+        const handle = await tasks.trigger(
+          "cad-generation-pipeline",
           {
-            method: "POST",
-            headers: {
-              Authorization: `Bearer ${triggerApiKey}`,
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
-              payload: {
-                job_id: jobId,
-                cad_run_id: cadRun.id,
-                part_spec_id,
-                variant_type,
-                engine,
-              },
-            }),
+            job_id: jobId,
+            cad_run_id: cadRun.id,
+            part_spec_id,
+            variant_type,
+            engine,
           }
         );
-
-        if (triggerRes.ok) {
-          const triggerData = await triggerRes.json();
-          triggerJobId = triggerData.id;
-        } else {
-          console.error("Trigger.dev API error:", await triggerRes.text());
-        }
+        triggerRunId = handle.id;
       } catch (err) {
-        console.error("Failed to trigger Trigger.dev job:", err);
+        console.error("Trigger.dev dispatch failed:", err);
+        // Roll back job status so the user can retry
+        await supabase
+          .from("jobs")
+          .update({ status: "failed" })
+          .eq("id", jobId);
+        await supabase
+          .from("cad_runs")
+          .update({
+            status: "failed",
+            error_text: `Trigger.dev dispatch failed: ${String(err)}`,
+            ended_at: new Date().toISOString(),
+          })
+          .eq("id", cadRun.id);
+        return NextResponse.json(
+          { error: "Failed to dispatch background job. Please retry." },
+          { status: 503 }
+        );
       }
-    } else {
-      console.warn("TRIGGER_SECRET_KEY not set — skipping Trigger.dev dispatch");
     }
 
     return NextResponse.json({
       success: true,
       cad_run_id: cadRun.id,
-      trigger_job_id: triggerJobId,
+      trigger_run_id: triggerRunId,
       status: "queued",
     });
   } catch (err) {

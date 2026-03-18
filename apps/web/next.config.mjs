@@ -1,10 +1,5 @@
-import type { NextConfig } from "next";
-
-const nextConfig: NextConfig = {
-  // Enable PWA-ready configuration
-  experimental: {
-    // Server actions are stable in Next.js 14
-  },
+/** @type {import('next').NextConfig} */
+const nextConfig = {
   // Headers for PWA and security
   async headers() {
     return [
