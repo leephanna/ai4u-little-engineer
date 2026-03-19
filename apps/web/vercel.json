@@ -3,7 +3,7 @@
   "framework": "nextjs",
   "buildCommand": "pnpm build",
   "devCommand": "pnpm dev",
-  "installCommand": "pnpm install",
+  "installCommand": "pnpm install --no-frozen-lockfile",
   "outputDirectory": ".next",
   "regions": ["iad1"],
   "headers": [
