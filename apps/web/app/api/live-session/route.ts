@@ -30,10 +30,6 @@ import OpenAI from "openai";
 import { geminiLiveTurn, isGeminiEnabled } from "./gemini-live";
 import { ORCHESTRATION_SYSTEM_PROMPT } from "@ai4u/shared/src/prompts/system-prompt";
 
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-});
-
 // Compact voice-turn JSON wrapper for the OpenAI path
 const OPENAI_VOICE_PROMPT = `${ORCHESTRATION_SYSTEM_PROMPT}
 
@@ -46,6 +42,12 @@ Respond ONLY in JSON:
 }`;
 
 export async function POST(request: NextRequest) {
+  // Instantiate OpenAI lazily (inside handler) to avoid build-time crash
+  // when OPENAI_API_KEY is not set in the build environment.
+  const openai = new OpenAI({
+    apiKey: process.env.OPENAI_API_KEY ?? "placeholder",
+  });
+
   try {
     const supabase = await createClient();
     const {
