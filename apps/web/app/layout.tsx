@@ -3,8 +3,17 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "AI4U Little Engineer",
-  description: "Voice-to-CAD for machinists. Speak a part, get a printable design.",
+  description: "Voice-to-CAD for 3D printer owners. Speak a part, get a printable design.",
   manifest: "/manifest.json",
+  icons: {
+    icon: [
+      { url: "/icons/favicon-32.png", sizes: "32x32", type: "image/png" },
+      { url: "/icons/icon-192.png", sizes: "192x192", type: "image/png" },
+    ],
+    apple: [
+      { url: "/icons/apple-touch-icon.png", sizes: "180x180", type: "image/png" },
+    ],
+  },
   appleWebApp: {
     capable: true,
     statusBarStyle: "black-translucent",
@@ -12,7 +21,7 @@ export const metadata: Metadata = {
   },
   openGraph: {
     title: "AI4U Little Engineer",
-    description: "Voice-to-CAD for machinists",
+    description: "Voice-to-CAD for 3D printer owners",
     type: "website",
   },
 };

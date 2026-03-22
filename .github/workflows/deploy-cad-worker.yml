@@ -1,0 +1,79 @@
+name: Deploy CAD Worker to Cloud Run
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - "apps/cad-worker/**"
+      - ".github/workflows/deploy-cad-worker.yml"
+
+env:
+  REGION: us-central1
+  IMAGE_NAME: cad-worker
+
+jobs:
+  deploy:
+    name: Build, Push & Deploy
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Configure Docker for Artifact Registry
+        run: gcloud auth configure-docker ${{ env.REGION }}-docker.pkg.dev --quiet
+
+      - name: Build Docker image
+        working-directory: apps/cad-worker
+        run: |
+          docker build \
+            --tag "${{ env.REGION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/ai4u/${{ env.IMAGE_NAME }}:${{ github.sha }}" \
+            --tag "${{ env.REGION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/ai4u/${{ env.IMAGE_NAME }}:latest" \
+            .
+
+      - name: Push Docker image
+        run: |
+          docker push "${{ env.REGION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/ai4u/${{ env.IMAGE_NAME }}:${{ github.sha }}"
+          docker push "${{ env.REGION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/ai4u/${{ env.IMAGE_NAME }}:latest"
+
+      - name: Deploy to Cloud Run
+        run: |
+          gcloud run deploy ${{ secrets.CAD_WORKER_SERVICE_NAME }} \
+            --image "${{ env.REGION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/ai4u/${{ env.IMAGE_NAME }}:${{ github.sha }}" \
+            --region ${{ env.REGION }} \
+            --platform managed \
+            --allow-unauthenticated \
+            --memory 2Gi \
+            --cpu 2 \
+            --min-instances 1 \
+            --max-instances 10 \
+            --port 8080 \
+            --set-env-vars "PYTHONUNBUFFERED=1,ARTIFACTS_DIR=/tmp/cad-artifacts" \
+            --project ${{ secrets.GCP_PROJECT_ID }}
+
+      - name: Smoke test — health check
+        run: |
+          SERVICE_URL=$(gcloud run services describe ${{ secrets.CAD_WORKER_SERVICE_NAME }} \
+            --region ${{ env.REGION }} \
+            --project ${{ secrets.GCP_PROJECT_ID }} \
+            --format "value(status.url)")
+          echo "Service URL: $SERVICE_URL"
+          RESPONSE=$(curl -sf "$SERVICE_URL/health")
+          echo "Health response: $RESPONSE"
+          echo "$RESPONSE" | python3 -c "
+          import json, sys
+          data = json.load(sys.stdin)
+          assert data.get('status') == 'ok', f'Expected status=ok, got: {data}'
+          print('✅ Health check passed')
+          "

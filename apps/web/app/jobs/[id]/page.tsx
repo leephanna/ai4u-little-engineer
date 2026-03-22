@@ -12,6 +12,9 @@ import { ApprovalPanel } from "@/components/jobs/ApprovalPanel";
 import { ArtifactList } from "@/components/jobs/ArtifactList";
 import { SpecSummary } from "@/components/jobs/SpecSummary";
 import { ValidationBadge } from "@/components/jobs/ValidationBadge";
+import { RevisionPanel } from "@/components/jobs/RevisionPanel";
+import { SharePanel } from "@/components/SharePanel";
+import { TagEditor } from "@/components/TagEditor";
 
 interface PageProps {
   params: Promise<{ id: string }>;
@@ -177,6 +180,20 @@ export default async function JobDetailPage({ params }: PageProps) {
           </section>
         )}
 
+        {/* Revision Panel — shown after completed or failed runs */}
+        {latestRun && ["completed", "failed"].includes(job.status) && latestSpec && (
+          <section>
+            <h2 className="text-sm font-medium text-steel-400 uppercase tracking-wide mb-3">
+              Iterate
+            </h2>
+            <RevisionPanel
+              jobId={id}
+              currentVersion={latestSpec.version}
+              currentFamily={latestSpec.family}
+            />
+          </section>
+        )}
+
         {/* Approval result */}
         {latestApproval && !isAwaitingApproval && (
           <section>
@@ -202,6 +219,27 @@ export default async function JobDetailPage({ params }: PageProps) {
           </section>
         )}
 
+        {/* Tags */}
+        <section>
+          <h2 className="text-sm font-medium text-steel-400 uppercase tracking-wide mb-3">
+            Tags
+          </h2>
+          <TagEditor
+            jobId={id}
+            initialTags={(job as Job & { tags?: string[] }).tags ?? []}
+          />
+        </section>
+        {/* Share */}
+        <section>
+          <h2 className="text-sm font-medium text-steel-400 uppercase tracking-wide mb-3">
+            Share
+          </h2>
+          <SharePanel
+            jobId={id}
+            initialShared={!!(job as Job & { share_token?: string | null }).share_token}
+            initialToken={(job as Job & { share_token?: string | null }).share_token ?? null}
+          />
+        </section>
         {/* Job metadata */}
         <section>
           <h2 className="text-sm font-medium text-steel-400 uppercase tracking-wide mb-3">

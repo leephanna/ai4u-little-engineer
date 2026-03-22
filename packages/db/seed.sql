@@ -1,34 +1,24 @@
 -- AI4U Little Engineer — Seed Data
 -- Demo data for development and testing.
 -- NOTE: Run schema.sql first.
-
--- ─────────────────────────────────────────────────────────────
--- Demo user (matches Supabase auth.users uuid if you create one)
--- ─────────────────────────────────────────────────────────────
-INSERT INTO public.users (id, email, full_name, role)
-VALUES
-  ('00000000-0000-0000-0000-000000000001', 'demo@ai4u.dev', 'Demo Machinist', 'builder'),
-  ('00000000-0000-0000-0000-000000000002', 'admin@ai4u.dev', 'Admin User', 'admin')
-ON CONFLICT (id) DO NOTHING;
-
--- ─────────────────────────────────────────────────────────────
--- Demo device
--- ─────────────────────────────────────────────────────────────
-INSERT INTO public.devices (id, user_id, label, platform)
-VALUES
-  ('00000000-0000-0000-0000-000000000010', '00000000-0000-0000-0000-000000000001', 'iPhone 15', 'ios')
-ON CONFLICT (id) DO NOTHING;
+--
+-- IMPORTANT: The demo user UUIDs used here must correspond to real rows
+-- in auth.users. In Supabase, create two users via the Auth dashboard
+-- (or the Supabase CLI) with these UUIDs before running this seed:
+--   - 00000000-0000-0000-0000-000000000001  (demo@ai4u.dev)
+--   - 00000000-0000-0000-0000-000000000002  (admin@ai4u.dev)
+--
+-- The public.users table was removed in schema v4. All tables now
+-- reference auth.users(id) directly.
 
 -- ─────────────────────────────────────────────────────────────
 -- Demo session
 -- ─────────────────────────────────────────────────────────────
-INSERT INTO public.sessions (id, user_id, device_id, transcript_summary)
+INSERT INTO public.sessions (id, user_id)
 VALUES
   (
     '00000000-0000-0000-0000-000000000020',
-    '00000000-0000-0000-0000-000000000001',
-    '00000000-0000-0000-0000-000000000010',
-    'User requested a U-bracket for a 2-inch pipe with two quarter-inch mounting holes.'
+    '00000000-0000-0000-0000-000000000001'
   )
 ON CONFLICT (id) DO NOTHING;
 
@@ -106,7 +96,7 @@ VALUES
 ON CONFLICT (id) DO NOTHING;
 
 -- ─────────────────────────────────────────────────────────────
--- Demo concept variant
+-- Demo concept variants
 -- ─────────────────────────────────────────────────────────────
 INSERT INTO public.concept_variants (
   id, job_id, part_spec_id, variant_type, description, rationale, score_json

@@ -24,6 +24,7 @@ from app.schemas.generation_request import (
 )
 from app.schemas.part_spec import PartSpec
 from app.generators import get_generator, is_supported, list_partial_families
+from app.utils.print_time import estimate_print_time_minutes
 from app.validators.dimensions import validate_bounding_box, validate_volume
 from app.validators.printable import score_printability, check_wall_thickness
 from app.exporters.step_export import export_step
@@ -283,9 +284,34 @@ async def generate_cad(request: GenerationRequest) -> GenerationResult:
         ))
 
     duration_ms = round((time.time() - start_time) * 1000, 1)
+
+    # ── Print time estimation ────────────────────────────────────
+    print_time_estimate: float | None = None
+    if validation and validation.bounding_box_mm and len(validation.bounding_box_mm) >= 3:
+        try:
+            layer_height = 0.2
+            infill_pct = 20
+            print_speed = 60.0
+            nozzle_dia = 0.4
+            if request.printer_profile:
+                layer_height = request.printer_profile.layer_height_mm or layer_height
+                infill_pct = request.printer_profile.default_infill_percent or infill_pct
+                print_speed = request.printer_profile.print_speed_mm_s or print_speed
+                nozzle_dia = request.printer_profile.nozzle_diameter_mm or nozzle_dia
+            print_time_estimate = estimate_print_time_minutes(
+                bounding_box_mm=validation.bounding_box_mm,
+                infill_percent=infill_pct,
+                layer_height_mm=layer_height,
+                print_speed_mm_s=print_speed,
+                nozzle_diameter_mm=nozzle_dia,
+            )
+        except Exception as e:
+            logger.warning(f"Print time estimation failed: {e}")
+
     logger.info(
         f"Generation SUCCESS: job={request.job_id} run={run_id} "
-        f"family={spec.family} artifacts={len(artifacts)} duration={duration_ms}ms"
+        f"family={spec.family} artifacts={len(artifacts)} "
+        f"print_time={print_time_estimate}min duration={duration_ms}ms"
     )
 
     return GenerationResult(
@@ -302,4 +328,5 @@ async def generate_cad(request: GenerationRequest) -> GenerationResult:
         assumptions=spec.assumptions,
         warnings=validation_warnings + export_errors,
         duration_ms=duration_ms,
+        print_time_estimate_minutes=print_time_estimate,
     )

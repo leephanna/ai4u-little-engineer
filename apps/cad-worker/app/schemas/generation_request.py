@@ -9,6 +9,7 @@ The Trigger.dev pipeline reads storage_path directly — no TODO stub.
 from typing import Dict, List, Literal, Optional, Any
 from pydantic import BaseModel, Field
 from app.schemas.part_spec import PartSpec
+from app.schemas.printer_profile import PrinterProfile
 
 
 class GenerationRequest(BaseModel):
@@ -21,6 +22,7 @@ class GenerationRequest(BaseModel):
     preview: bool = True
     export_formats: List[Literal["step", "stl"]] = Field(default=["step", "stl"])
     strict_validation: bool = True
+    printer_profile: Optional[PrinterProfile] = None
 
 
 class ValidationReport(BaseModel):
@@ -73,3 +75,4 @@ class GenerationResult(BaseModel):
     failure_stage: Optional[str] = None
     source_code: Optional[str] = None
     duration_ms: Optional[float] = None
+    print_time_estimate_minutes: Optional[float] = None

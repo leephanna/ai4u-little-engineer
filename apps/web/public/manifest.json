@@ -1,7 +1,7 @@
 {
   "name": "AI4U Little Engineer",
   "short_name": "AI4U Eng",
-  "description": "Voice-to-CAD for machinists",
+  "description": "Voice-to-CAD for 3D printer owners. Speak a part, get a printable design.",
   "start_url": "/dashboard",
   "display": "standalone",
   "background_color": "#0f172a",
@@ -19,8 +19,17 @@
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "maskable any"
+    },
+    {
+      "src": "/icons/apple-touch-icon.png",
+      "sizes": "180x180",
+      "type": "image/png",
+      "purpose": "any"
     }
   ],
-  "categories": ["productivity", "utilities"],
+  "categories": [
+    "productivity",
+    "utilities"
+  ],
   "screenshots": []
 }

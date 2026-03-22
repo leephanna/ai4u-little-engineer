@@ -7,6 +7,7 @@ from typing import Any, Callable, Dict, Optional, Tuple
 
 # Import all generator modules
 from app.generators import spacer, l_bracket, u_bracket, hole_plate, clip, enclosure
+from app.generators import flat_bracket, standoff_block, adapter_bushing, simple_jig
 
 # Registry: family_name -> (generate_fn, get_normalized_params_fn, name, version)
 GENERATOR_REGISTRY: Dict[str, Dict[str, Any]] = {
@@ -52,16 +53,39 @@ GENERATOR_REGISTRY: Dict[str, Dict[str, Any]] = {
         "name": enclosure.GENERATOR_NAME,
         "version": enclosure.GENERATOR_VERSION,
     },
+    "flat_bracket": {
+        "generate": flat_bracket.generate,
+        "get_normalized_params": flat_bracket.get_normalized_params,
+        "validate_params": flat_bracket.validate_params,
+        "name": flat_bracket.GENERATOR_NAME,
+        "version": flat_bracket.GENERATOR_VERSION,
+    },
+    "standoff_block": {
+        "generate": standoff_block.generate,
+        "get_normalized_params": standoff_block.get_normalized_params,
+        "validate_params": standoff_block.validate_params,
+        "name": standoff_block.GENERATOR_NAME,
+        "version": standoff_block.GENERATOR_VERSION,
+    },
+    "adapter_bushing": {
+        "generate": adapter_bushing.generate,
+        "get_normalized_params": adapter_bushing.get_normalized_params,
+        "validate_params": adapter_bushing.validate_params,
+        "name": adapter_bushing.GENERATOR_NAME,
+        "version": adapter_bushing.GENERATOR_VERSION,
+    },
+    "simple_jig": {
+        "generate": simple_jig.generate,
+        "get_normalized_params": simple_jig.get_normalized_params,
+        "validate_params": simple_jig.validate_params,
+        "name": simple_jig.GENERATOR_NAME,
+        "version": simple_jig.GENERATOR_VERSION,
+    },
 }
 
 # Families defined in the schema/prompts but whose generators are not yet
-# implemented in V1. The API returns a 400 with this message rather than a 500.
-PARTIAL_GENERATORS = {
-    "flat_bracket":    "Generator not yet implemented in V1. Use hole_plate for a similar result.",
-    "standoff_block":  "Generator not yet implemented in V1. Use spacer for a similar result.",
-    "adapter_bushing": "Generator not yet implemented in V1. Use spacer for a similar result.",
-    "simple_jig":      "Generator not yet implemented in V1.",
-}
+# implemented. The API returns a 400 with this message rather than a 500.
+PARTIAL_GENERATORS: Dict[str, str] = {}
 
 
 def get_generator(family: str) -> Dict[str, Any]:
