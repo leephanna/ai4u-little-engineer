@@ -1,166 +1,267 @@
 "use client";
-
 import Link from "next/link";
 import { useState, useEffect } from "react";
 
-// Animated counter hook
-function useCounter(target: number, duration = 1500) {
-  const [count, setCount] = useState(0);
-  useEffect(() => {
-    let start = 0;
-    const step = target / (duration / 16);
-    const timer = setInterval(() => {
-      start += step;
-      if (start >= target) {
-        setCount(target);
-        clearInterval(timer);
-      } else {
-        setCount(Math.floor(start));
-      }
-    }, 16);
-    return () => clearInterval(timer);
-  }, [target, duration]);
-  return count;
-}
-
-// Rotating demo phrases
-const DEMO_PHRASES = [
-  "I need a 20mm spacer with a 5mm bore",
-  "Make me an L-bracket, 50 by 40mm, 4mm thick",
-  "A cable clip for 8mm wire bundles",
-  "Standoff block, M3 thread, 12mm tall",
-  "Flat bracket, 80mm long, 4 holes",
-  "Adapter bushing, 22mm OD, 10mm bore",
+// ── Animated tagline cycling through part types ──────────────────────────────
+const PART_TYPES = [
+  "a custom spacer",
+  "an L-bracket",
+  "a cable clip",
+  "a standoff block",
+  "an adapter bushing",
+  "a drilling jig",
+  "a flat bracket",
+  "an enclosure lid",
+  "a U-bracket saddle",
+  "a mounting plate",
 ];
 
-function RotatingPhrase() {
+function AnimatedTagline() {
   const [idx, setIdx] = useState(0);
   const [visible, setVisible] = useState(true);
-
   useEffect(() => {
     const timer = setInterval(() => {
       setVisible(false);
       setTimeout(() => {
-        setIdx((i) => (i + 1) % DEMO_PHRASES.length);
+        setIdx((i) => (i + 1) % PART_TYPES.length);
         setVisible(true);
       }, 300);
-    }, 3000);
+    }, 2800);
     return () => clearInterval(timer);
   }, []);
-
   return (
-    <span className={`transition-opacity duration-300 ${visible ? "opacity-100" : "opacity-0"}`}>
-      &ldquo;{DEMO_PHRASES[idx]}&rdquo;
+    <span
+      className={`text-brand-400 transition-opacity duration-300 ${
+        visible ? "opacity-100" : "opacity-0"
+      }`}
+    >
+      {PART_TYPES[idx]}
     </span>
   );
 }
 
-// Social proof testimonials
+// ── Problem section — 4 relatable tiles ──────────────────────────────────────
+const PROBLEMS = [
+  {
+    icon: "😤",
+    title: "CAD software is overkill",
+    desc: "You just need a simple bracket — not a $300/year subscription and a 40-hour learning curve.",
+  },
+  {
+    icon: "📏",
+    title: "AI-generated meshes don't fit",
+    desc: "ChatGPT gives you an STL that looks right but the holes are 0.3mm off. Every. Single. Time.",
+  },
+  {
+    icon: "🔁",
+    title: "Reprinting wastes filament",
+    desc: "One bad dimension means another 2-hour print job. Your spool is shrinking, your patience faster.",
+  },
+  {
+    icon: "🤷",
+    title: "Nobody speaks machinist",
+    desc: "You say 'M5 clearance hole' and every tool either ignores you or makes something completely wrong.",
+  },
+];
+
+// ── How it works — 4 steps ───────────────────────────────────────────────────
+const HOW_IT_WORKS = [
+  {
+    step: "01",
+    icon: "🎙️",
+    title: "Describe your part",
+    desc: "Speak or type in plain English. Say 'I need a 20mm spacer with a 5mm bore' and you're done.",
+  },
+  {
+    step: "02",
+    icon: "🧠",
+    title: "AI extracts dimensions",
+    desc: "The AI asks only the critical missing questions — nothing more. No 20-question interrogation.",
+  },
+  {
+    step: "03",
+    icon: "🔍",
+    title: "Review in 3D",
+    desc: "Inspect the parametric model in-browser. Approve or iterate with one click. No surprises at the printer.",
+  },
+  {
+    step: "04",
+    icon: "🖨️",
+    title: "Download and print",
+    desc: "Get STEP + STL files auto-compensated for your printer's XY offset and nozzle size.",
+  },
+];
+
+// ── Part family gallery — 6 MVP families ─────────────────────────────────────
+const PART_FAMILIES = [
+  {
+    icon: "⭕",
+    name: "Spacer / Bushing",
+    family: "spacer",
+    desc: "Cylindrical spacers and bushings. Set OD, ID, and length. Fits any bolt pattern.",
+    example: "20mm OD, 5mm bore, 15mm tall",
+  },
+  {
+    icon: "📐",
+    name: "L-Bracket",
+    family: "l_bracket",
+    desc: "Corner mounting brackets for 90° connections. Parametric leg lengths and thickness.",
+    example: "50×40mm legs, 4mm thick, 3× M4 holes",
+  },
+  {
+    icon: "🔩",
+    name: "U-Bracket / Saddle Clamp",
+    family: "u_bracket",
+    desc: "Saddle clamps for pipes, tubes, and round profiles. Auto-sized to pipe OD.",
+    example: "22mm pipe OD, 3mm wall, 40mm flange",
+  },
+  {
+    icon: "🟦",
+    name: "Hole Plate",
+    family: "hole_plate",
+    desc: "Flat mounting plates with a pattern of holes. Perfect for electronics and panel mounts.",
+    example: "80×60mm, 4× M3 holes, 2mm thick",
+  },
+  {
+    icon: "📎",
+    name: "Cable Clip",
+    family: "cable_clip",
+    desc: "Snap-fit clips for routing and securing cables, wires, and tubing.",
+    example: "8mm cable OD, 2mm wall, screw base",
+  },
+  {
+    icon: "📦",
+    name: "Enclosure / Box",
+    family: "enclosure",
+    desc: "Parametric enclosures for electronics, sensors, and components. Lid included.",
+    example: "60×40×30mm interior, 2mm wall",
+  },
+];
+
+// ── Testimonials ─────────────────────────────────────────────────────────────
 const TESTIMONIALS = [
   {
-    quote: "I described a jig for my CNC router and had a printable STL in under 90 seconds. This is witchcraft.",
+    quote:
+      "I described a jig for my CNC router and had a printable STL in under 90 seconds. This is witchcraft.",
     name: "Marcus T.",
-    role: "Hobbyist machinist, Ender 3 owner",
+    role: "Hobbyist machinist · Ender 3",
   },
   {
-    quote: "Finally a tool that speaks machinist. I said 'M5 standoff, 15mm tall, hex base' and it just worked.",
+    quote:
+      "Finally a tool that speaks machinist. I said 'M5 standoff, 15mm tall, hex base' and it just worked.",
     name: "Sandra K.",
-    role: "Prototyping engineer, Bambu Lab X1C",
+    role: "Prototyping engineer · Bambu Lab X1C",
   },
   {
-    quote: "The printer profile tolerance feature is a game-changer. My holes actually fit now.",
+    quote:
+      "The printer profile tolerance feature is a game-changer. My holes actually fit now.",
     name: "Dev P.",
-    role: "Maker, Prusa MK4",
+    role: "Maker · Prusa MK4",
   },
-];
-
-// How it works steps
-const HOW_IT_WORKS = [
-  { step: "01", title: "Speak or type your part", desc: "Describe what you need in plain English. No CAD knowledge required.", icon: "🎙️" },
-  { step: "02", title: "AI extracts dimensions", desc: "The AI asks only the critical missing questions — nothing more.", icon: "🧠" },
-  { step: "03", title: "Review before printing", desc: "Inspect the 3D model in-browser. Approve or iterate with one click.", icon: "🔍" },
-  { step: "04", title: "Download and print", desc: "Get STEP + STL files optimized for your printer's tolerances.", icon: "🖨️" },
-];
-
-// Feature cards
-const FEATURES = [
-  { icon: "⚙️", title: "Parametric CAD, not AI guesses", desc: "Deterministic build123d generators produce exact STEP and STL files. Every dimension is traceable.", badge: "Precise" },
-  { icon: "📐", title: "10 Part Families", desc: "Spacers, brackets, clips, enclosures, bushings, jigs, standoffs, and more. All fully parametric.", badge: "Expanding" },
-  { icon: "🖨️", title: "Printer-aware tolerances", desc: "Save your printer profile once. Every part is auto-compensated for your nozzle and XY offset.", badge: "New" },
-  { icon: "✅", title: "Human approval gate", desc: "Review dimensions, warnings, and the 3D preview before any file is released for printing.", badge: "Safe" },
-  { icon: "🔁", title: "Iterate in seconds", desc: "Change a dimension, regenerate, and compare side-by-side. No CAD software needed.", badge: "Fast" },
-  { icon: "📦", title: "Full audit receipts", desc: "Every generation creates a receipt.json with all decisions, assumptions, and artifact paths.", badge: "Traceable" },
 ];
 
 export default function LandingPage() {
-  const jobCount = useCounter(1247);
-  const partCount = useCounter(10);
-  const timeCount = useCounter(90);
-
   return (
-    <main className="min-h-screen bg-steel-900 text-steel-50 overflow-x-hidden">
-
+    <main className="min-h-screen bg-steel-900 text-steel-100">
       {/* ── Sticky Nav ── */}
-      <nav className="sticky top-0 z-50 border-b border-steel-800 bg-steel-900/90 backdrop-blur-md px-6 py-4 flex items-center justify-between">
+      <nav className="sticky top-0 z-50 bg-steel-900/90 backdrop-blur border-b border-steel-800 px-4 sm:px-6 py-3 flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <div className="w-8 h-8 bg-brand-600 rounded-lg flex items-center justify-center shadow-lg shadow-brand-900/50">
-            <span className="text-white font-bold text-sm">AI</span>
+          <div className="w-7 h-7 bg-brand-600 rounded flex items-center justify-center">
+            <span className="text-white font-bold text-xs">AI</span>
           </div>
-          <span className="font-semibold text-steel-100">AI4U Little Engineer</span>
+          <span className="font-semibold text-steel-100 text-sm">AI4U Little Engineer</span>
         </div>
-        <div className="flex items-center gap-4">
-          <Link href="/login" className="text-steel-400 hover:text-steel-100 text-sm transition-colors">Sign In</Link>
-          <Link href="/signup" className="btn-primary text-sm py-1.5 px-4">Get Started Free</Link>
+        <div className="flex items-center gap-3">
+          <Link
+            href="/pricing"
+            className="text-steel-400 hover:text-steel-200 text-sm transition-colors hidden sm:block"
+          >
+            Pricing
+          </Link>
+          <Link href="/login" className="text-steel-400 hover:text-steel-200 text-sm transition-colors">
+            Sign In
+          </Link>
+          <Link href="/signup" className="btn-primary text-sm py-1.5 px-4">
+            Get Started Free
+          </Link>
         </div>
       </nav>
 
       {/* ── Hero ── */}
       <section className="relative max-w-5xl mx-auto px-6 pt-20 pb-16 text-center">
-        <div className="absolute inset-0 -z-10 overflow-hidden">
-          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[400px] bg-brand-600/10 rounded-full blur-3xl" />
+        <div className="inline-flex items-center gap-2 bg-brand-950 border border-brand-800 text-brand-400 text-xs rounded-full px-3 py-1 mb-6">
+          <span className="w-1.5 h-1.5 bg-brand-400 rounded-full animate-pulse" />
+          10 parametric part families · Printer-aware tolerances · Free to start
         </div>
-        <div className="inline-flex items-center gap-2 bg-brand-950 border border-brand-800 rounded-full px-4 py-1.5 text-brand-300 text-sm mb-8 animate-fade-in">
-          <span className="w-2 h-2 bg-brand-400 rounded-full animate-pulse" />
-          Voice-to-CAD for 3D Printer Owners
-        </div>
-        <h1 className="text-5xl sm:text-6xl font-bold text-steel-50 leading-tight mb-6 animate-slide-up">
-          Say the part.
+        <h1 className="text-4xl sm:text-6xl font-bold text-steel-100 mb-4 leading-tight">
+          Describe it.
           <br />
-          <span className="text-brand-400">Print the part.</span>
+          Print <AnimatedTagline />.
         </h1>
-        <p className="text-xl text-steel-400 max-w-2xl mx-auto mb-8 animate-slide-up">
-          AI4U Little Engineer turns plain-English descriptions into precision CAD files
-          optimized for your specific 3D printer — in under 90 seconds.
+        <p className="text-steel-400 text-lg sm:text-xl max-w-2xl mx-auto mb-8">
+          AI4U Little Engineer turns plain-English descriptions into precision-fit STL and STEP
+          files — optimized for your specific 3D printer — in under 90 seconds.
         </p>
-        <div className="inline-block bg-steel-800 border border-steel-700 rounded-xl px-5 py-3 text-brand-300 font-mono text-sm mb-10">
-          <RotatingPhrase />
+        <div className="flex flex-col sm:flex-row gap-3 justify-center">
+          <Link href="/signup" className="btn-primary text-base py-3 px-8">
+            Create Free Account
+          </Link>
+          <Link
+            href="/pricing"
+            className="btn-secondary text-base py-3 px-8"
+          >
+            See Pricing
+          </Link>
         </div>
-        <div className="flex flex-col sm:flex-row gap-4 justify-center mb-12">
-          <Link href="/signup" className="btn-primary text-lg py-3 px-10">Start Building Free</Link>
-          <Link href="/dashboard" className="btn-secondary text-lg py-3 px-10">See a Demo</Link>
+        <p className="text-steel-600 text-xs mt-4">
+          No credit card · No CAD software · No learning curve
+        </p>
+      </section>
+
+      {/* ── Problem section — 4 relatable tiles ── */}
+      <section className="max-w-5xl mx-auto px-6 py-16">
+        <div className="text-center mb-10">
+          <div className="text-brand-400 text-xs font-bold uppercase tracking-wider mb-2">
+            Sound familiar?
+          </div>
+          <h2 className="text-3xl font-bold text-steel-100">
+            Why 3D printer owners are frustrated
+          </h2>
         </div>
-        <div className="grid grid-cols-3 gap-6 max-w-lg mx-auto">
-          {[
-            { value: jobCount.toLocaleString(), label: "Parts generated" },
-            { value: partCount, label: "Part families" },
-            { value: `<${timeCount}s`, label: "Avg. generation time" },
-          ].map((s) => (
-            <div key={s.label} className="text-center">
-              <div className="text-2xl font-bold text-brand-400">{s.value}</div>
-              <div className="text-xs text-steel-500 mt-1">{s.label}</div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          {PROBLEMS.map((p) => (
+            <div
+              key={p.title}
+              className="card flex gap-4 items-start hover:border-brand-700/50 transition-colors"
+            >
+              <div className="text-3xl flex-shrink-0">{p.icon}</div>
+              <div>
+                <h3 className="font-semibold text-steel-100 mb-1">{p.title}</h3>
+                <p className="text-steel-400 text-sm">{p.desc}</p>
+              </div>
             </div>
           ))}
         </div>
+        <div className="text-center mt-8">
+          <p className="text-brand-400 font-semibold">
+            AI4U Little Engineer solves all four. Here&apos;s how.
+          </p>
+        </div>
       </section>
 
-      {/* ── How It Works ── */}
+      {/* ── How it works — 4 steps ── */}
       <section className="max-w-5xl mx-auto px-6 py-16">
-        <h2 className="text-3xl font-bold text-steel-100 text-center mb-12">From idea to STL in 4 steps</h2>
+        <div className="text-center mb-10">
+          <div className="text-brand-400 text-xs font-bold uppercase tracking-wider mb-2">
+            Simple by design
+          </div>
+          <h2 className="text-3xl font-bold text-steel-100">How it works</h2>
+        </div>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
           {HOW_IT_WORKS.map((step) => (
             <div key={step.step} className="card text-center">
               <div className="text-3xl mb-3">{step.icon}</div>
-              <div className="text-brand-400 font-mono text-xs font-bold mb-2">STEP {step.step}</div>
+              <div className="text-brand-400 text-xs font-bold mb-2">{step.step}</div>
               <h3 className="font-semibold text-steel-100 mb-2">{step.title}</h3>
               <p className="text-steel-400 text-sm">{step.desc}</p>
             </div>
@@ -168,54 +269,126 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* ── Features ── */}
+      {/* ── Part family gallery — 6 cards ── */}
       <section className="max-w-5xl mx-auto px-6 py-16">
-        <h2 className="text-3xl font-bold text-steel-100 text-center mb-4">Built for makers who care about precision</h2>
-        <p className="text-steel-400 text-center max-w-xl mx-auto mb-12">Not a vague AI sketch. Real parametric geometry, real tolerances, real files.</p>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          {FEATURES.map((f) => (
-            <div key={f.title} className="card group hover:border-brand-700 transition-colors duration-200">
-              <div className="flex items-start justify-between mb-3">
-                <div className="text-3xl">{f.icon}</div>
-                <span className="text-xs bg-brand-950 border border-brand-800 text-brand-400 rounded-full px-2 py-0.5">{f.badge}</span>
+        <div className="text-center mb-10">
+          <div className="text-brand-400 text-xs font-bold uppercase tracking-wider mb-2">
+            Ready to generate
+          </div>
+          <h2 className="text-3xl font-bold text-steel-100">
+            6 fully parametric part families
+          </h2>
+          <p className="text-steel-400 mt-2 max-w-xl mx-auto">
+            Every family has a dedicated generator that produces exact, dimension-traceable CAD
+            — not a mesh approximation.
+          </p>
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          {PART_FAMILIES.map((f) => (
+            <div
+              key={f.family}
+              className="card hover:border-brand-700/60 transition-colors group"
+            >
+              <div className="flex items-center gap-3 mb-3">
+                <div className="text-2xl">{f.icon}</div>
+                <h3 className="font-semibold text-steel-100 group-hover:text-brand-300 transition-colors">
+                  {f.name}
+                </h3>
               </div>
-              <h3 className="font-semibold text-steel-100 mb-2">{f.title}</h3>
-              <p className="text-steel-400 text-sm">{f.desc}</p>
+              <p className="text-steel-400 text-sm mb-3">{f.desc}</p>
+              <div className="bg-steel-800 rounded-lg px-3 py-2 font-mono text-xs text-steel-500">
+                e.g. &ldquo;{f.example}&rdquo;
+              </div>
             </div>
           ))}
         </div>
+        <div className="text-center mt-6">
+          <p className="text-steel-500 text-sm">
+            + Flat Bracket, Standoff Block, Adapter Bushing, and Simple Jig also available
+          </p>
+        </div>
       </section>
 
-      {/* ── Printer Profile Callout ── */}
-      <section className="max-w-4xl mx-auto px-6 py-12">
-        <div className="bg-gradient-to-r from-brand-950 to-steel-800 border border-brand-800 rounded-2xl p-8 flex flex-col md:flex-row items-center gap-6">
-          <div className="text-5xl">🖨️</div>
-          <div className="flex-1">
-            <div className="text-brand-400 text-xs font-bold uppercase tracking-wider mb-2">New in V1.1</div>
-            <h3 className="text-xl font-bold text-steel-100 mb-2">Printer-aware tolerance compensation</h3>
-            <p className="text-steel-400 text-sm">
-              Save your printer&apos;s XY compensation, nozzle size, and build volume once.
-              Every part is automatically adjusted so holes fit, threads work, and nothing warps.
-              Works with Bambu Lab, Prusa, Ender, Voron, and any FDM printer.
-            </p>
+      {/* ── Parametric vs mesh differentiator ── */}
+      <section className="max-w-5xl mx-auto px-6 py-16">
+        <div className="text-center mb-10">
+          <div className="text-brand-400 text-xs font-bold uppercase tracking-wider mb-2">
+            Why it matters
           </div>
-          <Link href="/settings/printer" className="btn-primary whitespace-nowrap">Set Up Printer</Link>
+          <h2 className="text-3xl font-bold text-steel-100">
+            Parametric CAD vs AI-generated meshes
+          </h2>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          {/* Parametric */}
+          <div className="card border-brand-700/50 bg-brand-950/20">
+            <div className="flex items-center gap-2 mb-4">
+              <span className="text-xl">✅</span>
+              <h3 className="font-semibold text-brand-300">AI4U Little Engineer (Parametric)</h3>
+            </div>
+            <ul className="space-y-2 text-sm text-steel-300">
+              {[
+                "Exact dimensions — every hole is exactly what you specified",
+                "Printer-aware — auto-compensates for your XY offset and nozzle",
+                "Editable — change one dimension and regenerate in seconds",
+                "Traceable — every assumption is logged in a receipt",
+                "STEP + STL — import into any CAD tool for further editing",
+                "Deterministic — same input always produces the same output",
+              ].map((item) => (
+                <li key={item} className="flex gap-2">
+                  <span className="text-brand-400 flex-shrink-0">→</span>
+                  {item}
+                </li>
+              ))}
+            </ul>
+          </div>
+          {/* Mesh / other AI */}
+          <div className="card border-steel-700 opacity-80">
+            <div className="flex items-center gap-2 mb-4">
+              <span className="text-xl">❌</span>
+              <h3 className="font-semibold text-steel-400">Other AI tools (Mesh-based)</h3>
+            </div>
+            <ul className="space-y-2 text-sm text-steel-500">
+              {[
+                "Approximate dimensions — holes may be 0.2–0.5mm off",
+                "No printer awareness — you adjust manually or reprint",
+                "Not editable — you get a mesh, not a parametric model",
+                "Black box — no record of what assumptions were made",
+                "STL only — cannot be imported into CAD for modification",
+                "Non-deterministic — regenerating gives a different result",
+              ].map((item) => (
+                <li key={item} className="flex gap-2">
+                  <span className="text-red-500 flex-shrink-0">✗</span>
+                  {item}
+                </li>
+              ))}
+            </ul>
+          </div>
         </div>
       </section>
 
       {/* ── Testimonials ── */}
       <section className="max-w-5xl mx-auto px-6 py-16">
-        <h2 className="text-3xl font-bold text-steel-100 text-center mb-12">What makers are saying</h2>
+        <h2 className="text-3xl font-bold text-steel-100 text-center mb-10">
+          What makers are saying
+        </h2>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           {TESTIMONIALS.map((t) => (
             <div key={t.name} className="card flex flex-col gap-4">
               <div className="flex gap-1">
-                {[...Array(5)].map((_, i) => <span key={i} className="text-accent-yellow text-sm">★</span>)}
+                {[...Array(5)].map((_, i) => (
+                  <span key={i} className="text-yellow-400 text-sm">
+                    ★
+                  </span>
+                ))}
               </div>
-              <p className="text-steel-300 text-sm italic flex-1">{t.quote}</p>
+              <p className="text-steel-300 text-sm italic flex-1">&ldquo;{t.quote}&rdquo;</p>
               <div className="flex items-center gap-3 pt-2 border-t border-steel-700">
                 <div className="w-8 h-8 bg-brand-800 rounded-full flex items-center justify-center text-brand-300 text-xs font-bold">
-                  {t.name.split(" ").map((n: string) => n[0]).join("")}
+                  {t.name
+                    .split(" ")
+                    .map((n: string) => n[0])
+                    .join("")}
                 </div>
                 <div>
                   <div className="text-steel-200 text-sm font-medium">{t.name}</div>
@@ -227,25 +400,44 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* ── Part Families ── */}
-      <section className="max-w-4xl mx-auto px-6 py-12">
-        <h2 className="text-2xl font-bold text-steel-100 text-center mb-8">10 fully parametric part families</h2>
-        <div className="flex flex-wrap justify-center gap-3">
-          {["Spacer / Bushing","L-Bracket","U-Bracket","Hole Plate","Cable Clip","Enclosure","Flat Bracket","Standoff Block","Adapter Bushing","Drilling Jig"].map((part) => (
-            <span key={part} className="bg-steel-800 border border-steel-700 text-steel-300 text-sm rounded-full px-4 py-1.5">{part}</span>
-          ))}
+      {/* ── Pricing preview CTA → /pricing ── */}
+      <section className="max-w-4xl mx-auto px-6 py-16">
+        <div className="bg-gradient-to-br from-brand-950 via-steel-800 to-steel-900 border border-brand-800 rounded-2xl p-8 sm:p-12 text-center">
+          <div className="text-brand-400 text-xs font-bold uppercase tracking-wider mb-3">
+            Simple pricing
+          </div>
+          <h2 className="text-3xl sm:text-4xl font-bold text-steel-100 mb-4">
+            Start free. Upgrade when you&apos;re hooked.
+          </h2>
+          <p className="text-steel-400 mb-8 max-w-xl mx-auto">
+            Free plan includes 3 generations per month. Maker and Pro plans unlock unlimited
+            generations, priority queue, and advanced part families.
+          </p>
+          <div className="flex flex-col sm:flex-row gap-4 justify-center items-center mb-6">
+            <div className="text-center">
+              <div className="text-3xl font-bold text-steel-100">Free</div>
+              <div className="text-steel-500 text-sm">3 parts/month</div>
+            </div>
+            <div className="text-steel-600 hidden sm:block">·</div>
+            <div className="text-center">
+              <div className="text-3xl font-bold text-brand-400">$9/mo</div>
+              <div className="text-steel-500 text-sm">Maker — unlimited</div>
+            </div>
+            <div className="text-steel-600 hidden sm:block">·</div>
+            <div className="text-center">
+              <div className="text-3xl font-bold text-purple-400">$29/mo</div>
+              <div className="text-steel-500 text-sm">Pro — priority + API</div>
+            </div>
+          </div>
+          <div className="flex flex-col sm:flex-row gap-3 justify-center">
+            <Link href="/signup" className="btn-primary text-base py-3 px-8">
+              Start Free
+            </Link>
+            <Link href="/pricing" className="btn-secondary text-base py-3 px-8">
+              Compare Plans
+            </Link>
+          </div>
         </div>
-      </section>
-
-      {/* ── Final CTA ── */}
-      <section className="max-w-2xl mx-auto px-6 py-20 text-center">
-        <h2 className="text-4xl font-bold text-steel-100 mb-4">Your next part is 90 seconds away</h2>
-        <p className="text-steel-400 mb-8 text-lg">Free to start. No credit card. No CAD software. Just describe and print.</p>
-        <Link href="/signup" className="btn-primary text-lg py-4 px-12">Create Free Account</Link>
-        <p className="text-steel-600 text-xs mt-4">
-          Already have an account?{" "}
-          <Link href="/login" className="text-brand-400 hover:underline">Sign in</Link>
-        </p>
       </section>
 
       {/* ── Footer ── */}
@@ -256,12 +448,26 @@ export default function LandingPage() {
           </div>
           <span className="text-steel-400 font-medium">AI4U Little Engineer</span>
         </div>
-        <p className="text-steel-600">V1.1 · Built with Next.js, Supabase, build123d · 10 part families · Printer-aware</p>
+        <p className="text-steel-600 text-xs">
+          V1.1 · Built with Next.js, Supabase, build123d · 10 part families · Printer-aware
+        </p>
         <div className="flex justify-center gap-6 mt-4 text-xs">
-          <Link href="/login" className="hover:text-steel-300 transition-colors">Sign In</Link>
-          <Link href="/signup" className="hover:text-steel-300 transition-colors">Sign Up</Link>
-          <Link href="/settings/printer" className="hover:text-steel-300 transition-colors">Printer Settings</Link>
+          <Link href="/login" className="hover:text-steel-300 transition-colors">
+            Sign In
+          </Link>
+          <Link href="/signup" className="hover:text-steel-300 transition-colors">
+            Sign Up
+          </Link>
+          <Link href="/pricing" className="hover:text-steel-300 transition-colors">
+            Pricing
+          </Link>
+          <Link href="/settings/printer" className="hover:text-steel-300 transition-colors">
+            Printer Settings
+          </Link>
         </div>
+        <p className="text-steel-700 text-xs mt-4">
+          © AI4U, LLC. AI4Utech.com, Lee Hanna-Owner.
+        </p>
       </footer>
     </main>
   );

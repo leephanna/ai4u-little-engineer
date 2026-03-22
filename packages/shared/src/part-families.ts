@@ -20,17 +20,16 @@ export const MVP_PART_FAMILIES = [
   "hole_plate",
   "cable_clip",
   "enclosure",
-] as const;
-
-export type MvpPartFamily = (typeof MVP_PART_FAMILIES)[number];
-
-// ── Defined but generator not yet implemented ────────────────
-export const PARTIAL_PART_FAMILIES = [
   "flat_bracket",
   "standoff_block",
   "adapter_bushing",
   "simple_jig",
 ] as const;
+
+export type MvpPartFamily = (typeof MVP_PART_FAMILIES)[number];
+
+// ── All generators now implemented in V1 ────────────────────
+export const PARTIAL_PART_FAMILIES = [] as const;
 
 export type PartialPartFamily = (typeof PARTIAL_PART_FAMILIES)[number];
 

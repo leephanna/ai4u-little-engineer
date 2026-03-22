@@ -175,7 +175,14 @@ class TestGeneratorRegistry:
         assert not is_supported("freeform_organic")
 
     def test_partial_families_documented(self):
-        from app.generators import list_partial_families
+        # flat_bracket, standoff_block, adapter_bushing, and simple_jig are now
+        # fully implemented generators in GENERATOR_REGISTRY - not partials.
+        from app.generators import list_partial_families, is_supported
         partials = list_partial_families()
-        assert "flat_bracket" in partials
-        assert "standoff_block" in partials
+        # Verify the four new generators are fully supported (not partial)
+        assert "flat_bracket" not in partials
+        assert "standoff_block" not in partials
+        assert is_supported("flat_bracket")
+        assert is_supported("standoff_block")
+        assert is_supported("adapter_bushing")
+        assert is_supported("simple_jig")

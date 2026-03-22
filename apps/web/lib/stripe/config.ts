@@ -65,7 +65,7 @@ export const PLANS: Record<PlanId, Plan> = {
       "Email notifications",
       "Priority support",
     ],
-    stripe_price_id_env: "STRIPE_MAKER_PRICE_ID",
+    stripe_price_id_env: "STRIPE_PRICE_ID_MAKER",
     badge: "Most Popular",
     highlight: true,
   },
@@ -85,7 +85,7 @@ export const PLANS: Record<PlanId, Plan> = {
       "Admin dashboard access",
       "Dedicated support",
     ],
-    stripe_price_id_env: "STRIPE_PRO_PRICE_ID",
+    stripe_price_id_env: "STRIPE_PRICE_ID_PRO",
     badge: "Best Value",
   },
 };
