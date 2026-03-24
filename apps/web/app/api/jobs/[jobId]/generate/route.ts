@@ -7,7 +7,7 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
+import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { tasks } from "@trigger.dev/sdk/v3";
 
 interface GenerateBody {
@@ -82,7 +82,11 @@ export async function POST(
     }
 
     // Create a CAD run record (queued) — Trigger.dev pipeline will update it
-    const { data: cadRun, error: runError } = await supabase
+    // NOTE: cad_runs has no INSERT RLS policy (only SELECT), so we must use
+    // the service role client here. The user's ownership is verified above
+    // via the job ownership check.
+    const serviceSupabase = await createServiceClient();
+    const { data: cadRun, error: runError } = await serviceSupabase
       .from("cad_runs")
       .insert({
         job_id: jobId,
@@ -106,7 +110,7 @@ export async function POST(
     }
 
     // Update job status to generating
-    await supabase
+    await serviceSupabase
       .from("jobs")
       .update({ status: "generating", latest_run_id: cadRun.id })
       .eq("id", jobId);
@@ -139,11 +143,11 @@ export async function POST(
       } catch (err) {
         console.error("Trigger.dev dispatch failed:", err);
         // Roll back job status so the user can retry
-        await supabase
+        await serviceSupabase
           .from("jobs")
           .update({ status: "failed" })
           .eq("id", jobId);
-        await supabase
+        await serviceSupabase
           .from("cad_runs")
           .update({
             status: "failed",
