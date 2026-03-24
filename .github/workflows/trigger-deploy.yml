@@ -2,7 +2,7 @@ name: Trigger.dev Deploy
 
 on:
   push:
-    branches: [main]
+    branches: [master]
     paths:
       - 'apps/trigger/**'
       - '.github/workflows/trigger-deploy.yml'

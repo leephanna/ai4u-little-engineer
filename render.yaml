@@ -1,0 +1,26 @@
+services:
+  - type: web
+    name: ai4u-cad-worker
+    runtime: docker
+    dockerfilePath: apps/cad-worker/Dockerfile
+    dockerContext: apps/cad-worker
+    region: ohio
+    plan: standard
+    healthCheckPath: /health
+    envVars:
+      - key: PYTHONUNBUFFERED
+        value: "1"
+      - key: PYTHONPATH
+        value: /app
+      - key: ARTIFACTS_DIR
+        value: /app/artifacts
+      - key: ALLOWED_ORIGINS
+        sync: false
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: SENTRY_DSN
+        sync: false
+      - key: DEBUG
+        value: "false"
