@@ -19,6 +19,7 @@
     "trigger:deploy": "turbo run deploy --filter=./apps/trigger"
   },
   "devDependencies": {
+    "@trigger.dev/sdk": "^4.4.3",
     "turbo": "^2.0.0",
     "typescript": "^5.4.0"
   },
