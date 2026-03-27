@@ -4,7 +4,7 @@
  * Polled every 30s by the dashboard status bar.
  */
 import { NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
+import { createClient, createServiceClient } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
 
@@ -67,7 +67,8 @@ async function checkSupabase(): Promise<ServiceStatus> {
 
 async function checkStorage(): Promise<ServiceStatus> {
   try {
-    const supabase = await createClient();
+    // Must use service role client — getBucket() requires service_role, not anon key
+    const supabase = await createServiceClient();
     const { data, error } = await supabase.storage.getBucket("cad-artifacts");
     if (error) return { status: "inaccessible", detail: error.message };
     return { status: data ? "accessible" : "inaccessible" };
