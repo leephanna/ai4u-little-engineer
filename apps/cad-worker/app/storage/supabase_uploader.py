@@ -14,9 +14,13 @@ Environment variables required:
 
 Hardening contract (v0.2.0):
   - If SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY are not set, raises RuntimeError.
-  - If the supabase package is not installed, raises ImportError.
-  - If any upload fails, raises RuntimeError.
+  - If any upload fails (non-2xx HTTP), raises RuntimeError.
   - storage_path is NEVER None for a successful run; callers must not accept None.
+
+Implementation note:
+  Uses httpx directly (not supabase-py) to avoid the supabase-py v2.5.0 bug:
+  "Invalid non-printable ASCII character in URL" when the JWT contains certain
+  characters that are mishandled by the underlying httpx URL builder in supabase-py.
 
 Local dev / unit tests:
   Set SUPABASE_UPLOAD_SKIP=1 to bypass uploads and return a synthetic path.
@@ -29,43 +33,7 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
-# Lazy-initialised Supabase client
-_supabase_client = None
-
 BUCKET_NAME = "cad-artifacts"
-
-
-def _get_client():
-    """
-    Return a cached Supabase client.
-
-    Raises RuntimeError if env vars are missing (production invariant).
-    Raises ImportError if the supabase package is not installed.
-    """
-    global _supabase_client
-    if _supabase_client is not None:
-        return _supabase_client
-
-    url = os.getenv("SUPABASE_URL")
-    key = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
-
-    if not url or not key:
-        raise RuntimeError(
-            "SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY must be set. "
-            "Artifact upload cannot proceed without Supabase credentials."
-        )
-
-    try:
-        from supabase import create_client  # type: ignore
-    except ImportError as e:
-        raise ImportError(
-            "supabase package is not installed. "
-            "Add 'supabase==2.5.0' to requirements.txt and rebuild the image."
-        ) from e
-
-    _supabase_client = create_client(url, key)
-    logger.info("Supabase client initialised for artifact upload")
-    return _supabase_client
 
 
 def upload_artifact(
@@ -75,7 +43,7 @@ def upload_artifact(
     mime_type: str,
 ) -> str:
     """
-    Upload a file to Supabase Storage.
+    Upload a file to Supabase Storage using httpx directly.
 
     Returns the storage_path (relative to the bucket root) on success.
     Raises RuntimeError on any failure — callers must not catch silently.
@@ -91,7 +59,14 @@ def upload_artifact(
         )
         return synthetic
 
-    client = _get_client()
+    supabase_url = os.getenv("SUPABASE_URL")
+    service_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+
+    if not supabase_url or not service_key:
+        raise RuntimeError(
+            "SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY must be set. "
+            "Artifact upload cannot proceed without Supabase credentials."
+        )
 
     file_path = Path(local_path)
     if not file_path.exists():
@@ -102,29 +77,37 @@ def upload_artifact(
     with open(file_path, "rb") as f:
         file_bytes = f.read()
 
+    # Build the upload URL manually — avoids supabase-py's URL construction bug
+    # Use the Supabase Storage REST API directly via httpx
+    upload_url = f"{supabase_url.rstrip('/')}/storage/v1/object/{BUCKET_NAME}/{storage_path}"
+
     try:
-        # upsert=True so re-runs overwrite cleanly
-        response = client.storage.from_(BUCKET_NAME).upload(
-            path=storage_path,
-            file=file_bytes,
-            file_options={
-                "content-type": mime_type,
-                "upsert": "true",
-            },
+        import httpx
+        headers = {
+            "Authorization": f"Bearer {service_key}",
+            "Content-Type": mime_type,
+            "x-upsert": "true",
+        }
+        response = httpx.put(
+            upload_url,
+            content=file_bytes,
+            headers=headers,
+            timeout=30.0,
         )
     except Exception as exc:
         raise RuntimeError(
             f"Supabase Storage upload failed for {storage_path}: {exc}"
         ) from exc
 
-    # supabase-py v2 raises on error; v1 returns a dict with 'error'
-    if hasattr(response, "error") and response.error:
+    if response.status_code not in (200, 201):
         raise RuntimeError(
-            f"Supabase Storage upload error for {storage_path}: {response.error}"
+            f"Supabase Storage upload failed for {storage_path}: "
+            f"HTTP {response.status_code} — {response.text[:300]}"
         )
 
     logger.info(
-        f"Uploaded artifact to storage: {storage_path} ({len(file_bytes)} bytes)"
+        f"Uploaded artifact to storage: {storage_path} ({len(file_bytes)} bytes) "
+        f"[HTTP {response.status_code}]"
     )
     return storage_path
 
