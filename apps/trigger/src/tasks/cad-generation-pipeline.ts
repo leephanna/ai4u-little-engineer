@@ -1,15 +1,14 @@
 /**
- * CAD Generation Pipeline — Trigger.dev Task (v1 production)
+ * CAD Generation Pipeline — Trigger.dev Task (v2 hardened)
  *
- * Artifact storage integrity contract
- * ─────────────────────────────────────
+ * Artifact storage integrity contract (v0.2.0)
+ * ─────────────────────────────────────────────
  * Every STEP and STL artifact returned by the CAD worker MUST have a non-null
- * storage_path before this pipeline will mark the run successful and transition
- * the job to awaiting_approval.
+ * storage_path. The CAD worker is now solely responsible for uploading files
+ * to Supabase Storage and returning real storage_path values.
  *
- * Primary path: CAD worker uploads files itself and returns storage_path.
- * Fallback path: If storage_path is null, this pipeline fetches the file from
- * the worker's /artifacts endpoint and uploads it to Supabase Storage directly.
+ * The Trigger.dev fallback upload path has been REMOVED. If the worker returns
+ * a null storage_path, the run is immediately failed — no silent compensation.
  *
  * Single-writer model
  * ────────────────────
@@ -26,8 +25,8 @@
  * 1. Mark cad_run → running
  * 2. Fetch PartSpec from Supabase
  * 3. POST /generate to CAD worker (with normalized dimension keys)
- * 4. Worker uploads files → returns storage_path per artifact
- * 5. For any artifact with null storage_path: fetch from /artifacts and upload
+ * 4. Worker uploads files → returns real storage_path per artifact
+ * 5. Assert all required artifacts have non-null storage_path (fail if not)
  * 6. Write receipt.json to Supabase Storage
  * 7. Insert artifact rows with real storage_path values
  * 8. Update cad_run → success
@@ -316,87 +315,28 @@ export const cadGenerationPipeline = task({
       throw new Error(`CAD generation failed: ${errorMsg}`);
     }
 
-    // ── Step 5: Artifact storage integrity gate + fallback upload ─
+    // ── Step 5: Artifact storage integrity gate (strict) ─────
     //
-    // Every STEP and STL artifact must have a real, non-null storage_path.
-    // Primary: CAD worker uploads and returns storage_path.
-    // Fallback: If null, this pipeline fetches from /artifacts and uploads.
+    // Hardening v0.2.0: The fallback upload path has been REMOVED.
+    // The CAD worker is solely responsible for uploading artifacts and
+    // returning real storage_path values. If any required artifact has a
+    // null storage_path, the run fails immediately — no compensation.
+    //
+    // This enforces the invariant: storage_path is NEVER null in the DB
+    // for a successful run.
 
     const missingStoragePaths = cadArtifacts.filter(
       (a) => REQUIRED_STORAGE_KINDS.has(a.kind) && a.storage_path === null
     );
 
     if (missingStoragePaths.length > 0) {
-      logger.warn(
-        `CAD worker did not upload ${missingStoragePaths.length} artifact(s) — ` +
-        `attempting fallback upload from /artifacts endpoint`,
-        { missing_kinds: missingStoragePaths.map((a) => a.kind) }
-      );
-
-      for (const artifact of missingStoragePaths) {
-        // local_path is container-internal: /app/artifacts/{job_id}/{worker_run_id}/{filename}
-        const localPath = artifact.local_path as string;
-        const pathParts = localPath.split("/");
-        const filename = pathParts[pathParts.length - 1] ?? `${artifact.kind}.bin`;
-        // Extract worker-generated IDs from the path
-        const workerRunId = pathParts.length >= 2 ? pathParts[pathParts.length - 2] : cad_run_id;
-        const workerJobId = pathParts.length >= 3 ? pathParts[pathParts.length - 3] : job_id;
-
-        const artifactUrl = `${cadWorkerUrl}/artifacts/${workerJobId}/${workerRunId}/${filename}`;
-        logger.log(`Fetching artifact from worker: ${artifactUrl}`);
-
-        let fileBytes: ArrayBuffer;
-        try {
-          const fetchResp = await fetch(artifactUrl, { signal: AbortSignal.timeout(30_000) });
-          if (!fetchResp.ok) {
-            throw new Error(`Worker returned ${fetchResp.status} for ${artifactUrl}`);
-          }
-          fileBytes = await fetchResp.arrayBuffer();
-          logger.log(`Fetched ${fileBytes.byteLength} bytes for ${artifact.kind}`);
-        } catch (fetchErr) {
-          logger.error(`Fallback artifact fetch failed for ${artifact.kind}`, {
-            error: fetchErr instanceof Error ? fetchErr.message : String(fetchErr),
-            url: artifactUrl,
-          });
-          continue; // Will be caught by stillMissing check below
-        }
-
-        // Upload to Supabase Storage using our own service role key
-        const storagePath = `${job_id}/${cad_run_id}/${filename}`;
-        const { error: uploadError } = await supabase.storage
-          .from("cad-artifacts")
-          .upload(storagePath, fileBytes, {
-            contentType: artifact.mime_type,
-            upsert: true,
-          });
-
-        if (uploadError) {
-          logger.error(`Fallback upload to Supabase failed for ${artifact.kind}`, {
-            error: uploadError.message,
-            storage_path: storagePath,
-          });
-          continue; // Will be caught by stillMissing check below
-        }
-
-        // Patch the artifact in-place with the real storage_path
-        artifact.storage_path = storagePath;
-        logger.log(`Fallback upload succeeded for ${artifact.kind}`, { storagePath });
-      }
-    }
-
-    // Re-check after fallback attempts
-    const stillMissing = cadArtifacts.filter(
-      (a) => REQUIRED_STORAGE_KINDS.has(a.kind) && a.storage_path === null
-    );
-
-    if (stillMissing.length > 0) {
-      const missingKinds = stillMissing.map((a) => a.kind).join(", ");
+      const missingKinds = missingStoragePaths.map((a) => a.kind).join(", ");
       const errorMsg =
-        `Artifact storage upload failed for: [${missingKinds}]. ` +
-        `storage_path is null after both worker upload and fallback fetch. ` +
-        `Check CAD worker /artifacts endpoint and Supabase Storage config.`;
+        `Artifact storage upload failed in CAD worker for: [${missingKinds}]. ` +
+        `storage_path is null — the worker must upload files directly to Supabase. ` +
+        `Check SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY env vars on the CAD worker.`;
 
-      logger.error("Artifact storage integrity check failed after fallback", {
+      logger.error("Artifact storage integrity check failed — null storage_path returned by worker", {
         missing_kinds: missingKinds,
       });
 
@@ -406,7 +346,7 @@ export const cadGenerationPipeline = task({
           status: "failed",
           normalized_params_json: cadResult.normalized_params ?? {},
           validation_report_json: cadResult.validation ?? {},
-          error_text: `[storage_upload_failed] ${errorMsg}`,
+          error_text: `[upload_failed] ${errorMsg}`,
           ended_at: new Date().toISOString(),
         })
         .eq("id", cad_run_id);
@@ -421,14 +361,14 @@ export const cadGenerationPipeline = task({
           job_id, cad_run_id, part_spec_id,
           status: "failed",
           error: errorMsg,
-          failure_stage: "storage_upload_failed",
+          failure_stage: "upload_failed",
           artifact_count: 0,
           duration_ms: cadResult.duration_ms ?? 0,
         });
       }
 
-      // Retryable: the worker may succeed on the next attempt.
-      throw new Error(`[storage_upload_failed] ${errorMsg}`);
+      // Retryable: the worker may succeed on the next attempt after env fix.
+      throw new Error(`[upload_failed] ${errorMsg}`);
     }
 
     // ── Step 6: Write receipt.json to Supabase Storage ───────
@@ -466,8 +406,8 @@ export const cadGenerationPipeline = task({
 
     // ── Step 7: Insert artifact records ───────────────────────
     // All artifacts at this point have a non-null storage_path (guaranteed
-    // by the integrity gate above). Only include STEP/STL artifacts from the
-    // worker response; receipt is appended separately.
+    // by the strict integrity gate above). Only include STEP/STL artifacts
+    // from the worker response; receipt is appended separately.
     const artifactRows = cadArtifacts
       .filter((a) => a.storage_path !== null)
       .map((a) => ({

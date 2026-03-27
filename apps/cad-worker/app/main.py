@@ -58,7 +58,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="AI4U Little Engineer — CAD Worker",
     description="Deterministic parametric CAD generation microservice",
-    version="0.1.0",
+    version="0.2.0",
     lifespan=lifespan,
 )
 
@@ -93,7 +93,7 @@ async def health_check():
     return {
         "status": "ok",
         "service": "cad-worker",
-        "version": "0.1.0",
+        "version": "0.2.0",
         "cad_engine": {
             "build123d_available": cad_available,
             "build123d_version": cad_version,

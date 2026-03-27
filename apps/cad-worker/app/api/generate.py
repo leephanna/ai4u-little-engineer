@@ -264,21 +264,43 @@ async def generate_cad(request: GenerationRequest) -> GenerationResult:
         )
 
     # ── Upload artifacts to Supabase Storage ─────────────────────
-    # Fix C: upload happens here in the worker so the Trigger.dev pipeline
-    # receives real storage_path values — no TODO stub needed.
-    uploaded = upload_artifacts_batch(
-        artifacts=local_artifacts,
-        job_id=request.job_id,
-        cad_run_id=run_id,
-    )
+    # Hardening v0.2.0: upload_artifacts_batch now RAISES on failure.
+    # If any upload fails, the run is marked failed — no null storage_path
+    # is accepted for a successful run. The Trigger.dev fallback path is
+    # no longer needed and has been removed from the pipeline.
+    try:
+        uploaded = upload_artifacts_batch(
+            artifacts=local_artifacts,
+            job_id=request.job_id,
+            cad_run_id=run_id,
+        )
+    except Exception as upload_exc:
+        logger.error(
+            f"Artifact upload failed for job={request.job_id} run={run_id}: {upload_exc}",
+            exc_info=True,
+        )
+        return GenerationResult(
+            status="failed",
+            job_id=request.job_id,
+            part_spec_id=request.part_spec_id,
+            cad_run_id=run_id,
+            engine=request.engine,
+            generator_name=generator_name,
+            generator_version=generator_version,
+            normalized_params=normalized_params,
+            validation=validation,
+            error=f"Artifact upload failed: {upload_exc}",
+            failure_stage="upload_failed",
+            duration_ms=round((time.time() - start_time) * 1000, 1),
+        )
 
-    # Build ArtifactResult list — include storage_path in the response
+    # Build ArtifactResult list — storage_path is guaranteed non-None here
     artifacts: list[ArtifactResult] = []
     for item in uploaded:
         artifacts.append(ArtifactResult(
             kind=item["kind"],
             local_path=item["local_path"],
-            storage_path=item.get("storage_path"),   # None if Supabase not configured
+            storage_path=item["storage_path"],  # guaranteed non-None by uploader
             mime_type=item["mime_type"],
             file_size_bytes=item.get("file_size_bytes"),
         ))

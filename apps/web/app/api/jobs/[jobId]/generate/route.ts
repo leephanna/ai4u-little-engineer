@@ -2,6 +2,14 @@
  * POST /api/jobs/[id]/generate
  * Triggers a CAD generation job via the Trigger.dev v3 SDK.
  *
+ * Billing gate (v0.2.0 hardening):
+ *   Before dispatching, this route checks the user's plan and monthly usage.
+ *   - Free plan: max 5 generations/month
+ *   - Maker plan: max 100 generations/month
+ *   - Pro plan: unlimited
+ *   If the user is over their limit, a 402 is returned with an upgrade URL.
+ *   On success, generations_this_month is incremented atomically.
+ *
  * The SDK reads TRIGGER_SECRET_KEY and TRIGGER_API_URL from environment
  * variables automatically — no manual configure() call needed.
  */
@@ -10,6 +18,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { createClient as createSupabaseClient } from "@supabase/supabase-js";
 import { tasks } from "@trigger.dev/sdk/v3";
+import { checkGenerationAllowed, type PlanId } from "@/lib/stripe/config";
 
 interface GenerateBody {
   part_spec_id: string;
@@ -27,7 +36,7 @@ export async function POST(
     // Support both SSR cookie auth (browser) and Bearer token auth (API clients)
     const authHeader = request.headers.get("authorization");
     let supabase: Awaited<ReturnType<typeof createClient>>;
-    let user: { id: string } | null = null;
+    let user: { id: string; email?: string } | null = null;
 
     if (authHeader?.startsWith("Bearer ")) {
       const token = authHeader.slice(7);
@@ -47,6 +56,47 @@ export async function POST(
 
     if (!user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    // ── Billing gate ─────────────────────────────────────────────
+    // Fetch the user's profile to get plan and monthly usage.
+    // Uses the service client so we can read the profiles row reliably.
+    const serviceSupabase = await createServiceClient();
+    const { data: profile } = await serviceSupabase
+      .from("profiles")
+      .select("plan, generations_this_month, generation_month")
+      .eq("id", user.id)
+      .single();
+
+    // Default to free plan if profile is missing (new user edge case)
+    const userPlan = ((profile?.plan as PlanId) ?? "free") as PlanId;
+    const currentMonth = new Date().toISOString().slice(0, 7); // 'YYYY-MM'
+
+    // Reset counter if we're in a new month
+    let generationsThisMonth = profile?.generations_this_month ?? 0;
+    if (profile?.generation_month !== currentMonth) {
+      // New month — treat counter as 0 (will be reset on increment below)
+      generationsThisMonth = 0;
+    }
+
+    const entitlement = checkGenerationAllowed(userPlan, generationsThisMonth);
+
+    if (!entitlement.allowed) {
+      const appUrl =
+        process.env.NEXT_PUBLIC_APP_URL ??
+        "https://ai4u-little-engineer-web.vercel.app";
+      return NextResponse.json(
+        {
+          error: "Generation limit reached",
+          detail: `Your ${userPlan} plan allows ${
+            userPlan === "free" ? "5" : "100"
+          } generations per month. Upgrade to continue.`,
+          plan: userPlan,
+          generations_used: generationsThisMonth,
+          upgrade_url: `${appUrl}/pricing`,
+        },
+        { status: 402 }
+      );
     }
 
     // Verify job ownership and status
@@ -98,11 +148,20 @@ export async function POST(
       );
     }
 
+    // ── Increment generation counter (atomic) ────────────────────
+    // Do this before dispatch so the counter is accurate even if dispatch fails.
+    await serviceSupabase
+      .from("profiles")
+      .update({
+        generations_this_month: generationsThisMonth + 1,
+        generation_month: currentMonth,
+      })
+      .eq("id", user.id);
+
     // Create a CAD run record (queued) — Trigger.dev pipeline will update it
     // NOTE: cad_runs has no INSERT RLS policy (only SELECT), so we must use
     // the service role client here. The user's ownership is verified above
     // via the job ownership check.
-    const serviceSupabase = await createServiceClient();
     const { data: cadRun, error: runError } = await serviceSupabase
       .from("cad_runs")
       .insert({
@@ -120,6 +179,11 @@ export async function POST(
 
     if (runError || !cadRun) {
       console.error("CAD run insert error:", runError);
+      // Roll back the counter increment on insert failure
+      await serviceSupabase
+        .from("profiles")
+        .update({ generations_this_month: generationsThisMonth })
+        .eq("id", user.id);
       return NextResponse.json(
         { error: "Failed to create CAD run record" },
         { status: 500 }
@@ -159,7 +223,7 @@ export async function POST(
         triggerRunId = handle.id;
       } catch (err) {
         console.error("Trigger.dev dispatch failed:", err);
-        // Roll back job status so the user can retry
+        // Roll back job status and counter so the user can retry
         await serviceSupabase
           .from("jobs")
           .update({ status: "failed" })
@@ -172,6 +236,10 @@ export async function POST(
             ended_at: new Date().toISOString(),
           })
           .eq("id", cadRun.id);
+        await serviceSupabase
+          .from("profiles")
+          .update({ generations_this_month: generationsThisMonth })
+          .eq("id", user.id);
         return NextResponse.json(
           { error: "Failed to dispatch background job. Please retry." },
           { status: 503 }
@@ -184,6 +252,10 @@ export async function POST(
       cad_run_id: cadRun.id,
       trigger_run_id: triggerRunId,
       status: "queued",
+      plan: userPlan,
+      generations_remaining: entitlement.remaining !== null
+        ? entitlement.remaining - 1
+        : null,
     });
   } catch (err) {
     console.error("Generate trigger error:", err);
