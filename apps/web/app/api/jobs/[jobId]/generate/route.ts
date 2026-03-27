@@ -8,6 +8,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
+import { createClient as createSupabaseClient } from "@supabase/supabase-js";
 import { tasks } from "@trigger.dev/sdk/v3";
 
 interface GenerateBody {
@@ -22,11 +23,27 @@ export async function POST(
 ) {
   try {
     const { jobId } = await params;
-    const supabase = await createClient();
 
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
+    // Support both SSR cookie auth (browser) and Bearer token auth (API clients)
+    const authHeader = request.headers.get("authorization");
+    let supabase: Awaited<ReturnType<typeof createClient>>;
+    let user: { id: string } | null = null;
+
+    if (authHeader?.startsWith("Bearer ")) {
+      const token = authHeader.slice(7);
+      const anonClient = createSupabaseClient(
+        process.env.NEXT_PUBLIC_SUPABASE_URL!,
+        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+        { global: { headers: { Authorization: `Bearer ${token}` } } }
+      );
+      const { data } = await anonClient.auth.getUser(token);
+      user = data.user;
+      supabase = anonClient as unknown as Awaited<ReturnType<typeof createClient>>;
+    } else {
+      supabase = await createClient();
+      const { data } = await supabase.auth.getUser();
+      user = data.user;
+    }
 
     if (!user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
