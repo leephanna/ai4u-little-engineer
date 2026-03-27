@@ -52,13 +52,21 @@ class PartSpec(BaseModel):
     """
     family: str = Field(..., description="Part family from supported list")
     units: SUPPORTED_UNITS = Field(default="mm", description="Input units (normalized to mm at ingress)")
-    material: str = Field(default="Unknown")
+    material: Optional[str] = Field(default="Unknown")
     dimensions: Dict[str, float] = Field(default_factory=dict)
     load_requirements: LoadRequirements = Field(default_factory=LoadRequirements)
     constraints: PartConstraints = Field(default_factory=PartConstraints)
     printer_constraints: PrinterConstraints = Field(default_factory=PrinterConstraints)
     assumptions: List[str] = Field(default_factory=list)
     missing_fields: List[str] = Field(default_factory=list)
+
+    @field_validator("material", mode="before")
+    @classmethod
+    def coerce_material(cls, v: object) -> str:
+        """Accept null/None and coerce to 'Unknown'."""
+        if v is None:
+            return "Unknown"
+        return str(v)
 
     @field_validator("family")
     @classmethod

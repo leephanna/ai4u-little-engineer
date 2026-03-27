@@ -219,7 +219,7 @@ export const cadGenerationPipeline = task({
         part_spec: {
           family: spec.family,
           units: spec.units,
-          material: spec.material,
+          material: spec.material ?? "Unknown",
           dimensions: spec.dimensions_json,
           load_requirements: spec.load_requirements_json,
           constraints: spec.constraints_json,
