@@ -7,14 +7,9 @@
  * storage_path before this pipeline will mark the run successful and transition
  * the job to awaiting_approval.
  *
- * If any required artifact has storage_path = null the pipeline FAILS the run
- * immediately. Trigger.dev will retry up to maxAttempts times. The job stays
- * in "generating" status throughout.
- *
- * There is NO local-dev fallback / degraded mode in v1. If you need to run
- * locally, configure a real Supabase project (including the cad-artifacts
- * Storage bucket) and set SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY in the
- * CAD worker environment.
+ * Primary path: CAD worker uploads files itself and returns storage_path.
+ * Fallback path: If storage_path is null, this pipeline fetches the file from
+ * the worker's /artifacts endpoint and uploads it to Supabase Storage directly.
  *
  * Single-writer model
  * ────────────────────
@@ -30,10 +25,9 @@
  * ─────
  * 1. Mark cad_run → running
  * 2. Fetch PartSpec from Supabase
- * 3. POST /generate to CAD worker
+ * 3. POST /generate to CAD worker (with normalized dimension keys)
  * 4. Worker uploads files → returns storage_path per artifact
- * 5. Validate: all required artifact storage_paths are non-null
- *    → If any are null → FAIL (retryable)
+ * 5. For any artifact with null storage_path: fetch from /artifacts and upload
  * 6. Write receipt.json to Supabase Storage
  * 7. Insert artifact rows with real storage_path values
  * 8. Update cad_run → success
@@ -211,6 +205,21 @@ export const cadGenerationPipeline = task({
     // ── Step 3: Call CAD worker ───────────────────────────────
     logger.log("Calling CAD worker", { url: cadWorkerUrl });
 
+    // Normalize dimension keys: strip trailing "_mm" suffix so that keys like
+    // "outer_diameter_mm" become "outer_diameter". The CAD worker generators
+    // expect plain keys ("outer_diameter", "height", etc.) without the unit
+    // suffix. Both old records (with _mm) and new records (without) are handled.
+    const rawDims: Record<string, number> = spec.dimensions_json ?? {};
+    const normalizedDims: Record<string, number> = {};
+    for (const [k, v] of Object.entries(rawDims)) {
+      const normalKey = k.endsWith("_mm") ? k.slice(0, -3) : k;
+      normalizedDims[normalKey] = v as number;
+    }
+    logger.log("Normalized dimensions", {
+      raw_keys: Object.keys(rawDims),
+      normalized_keys: Object.keys(normalizedDims),
+    });
+
     let cadResult: Record<string, unknown>;
     try {
       cadResult = await callCadWorker(cadWorkerUrl, {
@@ -220,7 +229,7 @@ export const cadGenerationPipeline = task({
           family: spec.family,
           units: spec.units,
           material: spec.material ?? "Unknown",
-          dimensions: spec.dimensions_json,
+          dimensions: normalizedDims,
           load_requirements: spec.load_requirements_json,
           constraints: spec.constraints_json,
           printer_constraints: spec.printer_constraints_json,
@@ -307,30 +316,87 @@ export const cadGenerationPipeline = task({
       throw new Error(`CAD generation failed: ${errorMsg}`);
     }
 
-    // ── Step 5: Artifact storage integrity gate ───────────────
+    // ── Step 5: Artifact storage integrity gate + fallback upload ─
     //
     // Every STEP and STL artifact must have a real, non-null storage_path.
-    // A null path means the CAD worker's Supabase upload failed — the file
-    // exists only inside the ephemeral worker container. Inserting a null-path
-    // artifact row and marking the job awaiting_approval would present a
-    // broken download link to the user as a normal success.
-    //
-    // This is a hard failure. Trigger.dev will retry up to maxAttempts times.
-    // The job stays in "generating" status throughout.
+    // Primary: CAD worker uploads and returns storage_path.
+    // Fallback: If null, this pipeline fetches from /artifacts and uploads.
 
     const missingStoragePaths = cadArtifacts.filter(
       (a) => REQUIRED_STORAGE_KINDS.has(a.kind) && a.storage_path === null
     );
 
     if (missingStoragePaths.length > 0) {
-      const missingKinds = missingStoragePaths.map((a) => a.kind).join(", ");
+      logger.warn(
+        `CAD worker did not upload ${missingStoragePaths.length} artifact(s) — ` +
+        `attempting fallback upload from /artifacts endpoint`,
+        { missing_kinds: missingStoragePaths.map((a) => a.kind) }
+      );
+
+      for (const artifact of missingStoragePaths) {
+        // local_path is container-internal: /app/artifacts/{job_id}/{worker_run_id}/{filename}
+        const localPath = artifact.local_path as string;
+        const pathParts = localPath.split("/");
+        const filename = pathParts[pathParts.length - 1] ?? `${artifact.kind}.bin`;
+        // Extract worker-generated IDs from the path
+        const workerRunId = pathParts.length >= 2 ? pathParts[pathParts.length - 2] : cad_run_id;
+        const workerJobId = pathParts.length >= 3 ? pathParts[pathParts.length - 3] : job_id;
+
+        const artifactUrl = `${cadWorkerUrl}/artifacts/${workerJobId}/${workerRunId}/${filename}`;
+        logger.log(`Fetching artifact from worker: ${artifactUrl}`);
+
+        let fileBytes: ArrayBuffer;
+        try {
+          const fetchResp = await fetch(artifactUrl, { signal: AbortSignal.timeout(30_000) });
+          if (!fetchResp.ok) {
+            throw new Error(`Worker returned ${fetchResp.status} for ${artifactUrl}`);
+          }
+          fileBytes = await fetchResp.arrayBuffer();
+          logger.log(`Fetched ${fileBytes.byteLength} bytes for ${artifact.kind}`);
+        } catch (fetchErr) {
+          logger.error(`Fallback artifact fetch failed for ${artifact.kind}`, {
+            error: fetchErr instanceof Error ? fetchErr.message : String(fetchErr),
+            url: artifactUrl,
+          });
+          continue; // Will be caught by stillMissing check below
+        }
+
+        // Upload to Supabase Storage using our own service role key
+        const storagePath = `${job_id}/${cad_run_id}/${filename}`;
+        const { error: uploadError } = await supabase.storage
+          .from("cad-artifacts")
+          .upload(storagePath, fileBytes, {
+            contentType: artifact.mime_type,
+            upsert: true,
+          });
+
+        if (uploadError) {
+          logger.error(`Fallback upload to Supabase failed for ${artifact.kind}`, {
+            error: uploadError.message,
+            storage_path: storagePath,
+          });
+          continue; // Will be caught by stillMissing check below
+        }
+
+        // Patch the artifact in-place with the real storage_path
+        artifact.storage_path = storagePath;
+        logger.log(`Fallback upload succeeded for ${artifact.kind}`, { storagePath });
+      }
+    }
+
+    // Re-check after fallback attempts
+    const stillMissing = cadArtifacts.filter(
+      (a) => REQUIRED_STORAGE_KINDS.has(a.kind) && a.storage_path === null
+    );
+
+    if (stillMissing.length > 0) {
+      const missingKinds = stillMissing.map((a) => a.kind).join(", ");
       const errorMsg =
         `Artifact storage upload failed for: [${missingKinds}]. ` +
-        `storage_path is null — files were not persisted to Supabase Storage. ` +
-        `Ensure SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are set in the ` +
-        `CAD worker environment and the 'cad-artifacts' bucket exists.`;
+        `storage_path is null after both worker upload and fallback fetch. ` +
+        `Check CAD worker /artifacts endpoint and Supabase Storage config.`;
 
-      logger.error("Artifact storage integrity check failed", {
+      logger.error("Artifact storage integrity check failed after fallback", {
         missing_kinds: missingKinds,
       });
 
@@ -361,8 +427,7 @@ export const cadGenerationPipeline = task({
         });
       }
 
-      // Retryable: the worker may succeed on the next attempt if the
-      // Supabase Storage outage was transient.
+      // Retryable: the worker may succeed on the next attempt.
       throw new Error(`[storage_upload_failed] ${errorMsg}`);
     }
 

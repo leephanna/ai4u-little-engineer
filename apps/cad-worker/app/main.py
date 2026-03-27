@@ -14,6 +14,7 @@ from fastapi.responses import JSONResponse
 from app.api.generate import router as generate_router
 from app.api.validate import router as validate_router
 from app.api.export import router as export_router
+from app.api.artifacts import router as artifacts_router
 
 # Configure logging
 logging.basicConfig(
@@ -74,6 +75,7 @@ app.add_middleware(
 app.include_router(generate_router, prefix="/generate", tags=["generate"])
 app.include_router(validate_router, prefix="/validate", tags=["validate"])
 app.include_router(export_router, prefix="/export", tags=["export"])
+app.include_router(artifacts_router, prefix="/artifacts", tags=["artifacts"])
 
 
 @app.get("/health", tags=["health"])
