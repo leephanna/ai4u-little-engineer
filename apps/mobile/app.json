@@ -1,0 +1,70 @@
+{
+  "expo": {
+    "name": "AI4U Little Engineer",
+    "slug": "ai4u-little-engineer",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "dark",
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#0A0A0F"
+    },
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.ai4u.littleengineer",
+      "buildNumber": "1",
+      "infoPlist": {
+        "NSMicrophoneUsageDescription": "AI4U Little Engineer uses the microphone to capture voice commands for CAD part design.",
+        "NSSpeechRecognitionUsageDescription": "AI4U Little Engineer uses speech recognition to interpret your part design requests."
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#0A0A0F",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "package": "com.ai4u.littleengineer",
+      "versionCode": 1,
+      "permissions": [
+        "android.permission.RECORD_AUDIO",
+        "android.permission.INTERNET",
+        "android.permission.ACCESS_NETWORK_STATE",
+        "android.permission.VIBRATE"
+      ],
+      "predictiveBackGestureEnabled": false
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-secure-store",
+      [
+        "expo-av",
+        {
+          "microphonePermission": "Allow AI4U Little Engineer to access your microphone for voice-driven CAD design."
+        }
+      ],
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "compileSdkVersion": 34,
+            "targetSdkVersion": 34,
+            "minSdkVersion": 24
+          }
+        }
+      ]
+    ],
+    "scheme": "ai4u-le",
+    "extra": {
+      "eas": {
+        "projectId": "ai4u-little-engineer"
+      }
+    }
+  }
+}
