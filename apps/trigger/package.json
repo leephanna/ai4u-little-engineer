@@ -8,6 +8,8 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.80.0",
+    "@google/generative-ai": "^0.21.0",
     "@supabase/supabase-js": "^2.43.0",
     "@trigger.dev/sdk": "^4.4.3",
     "openai": "^4.47.0",
