@@ -469,6 +469,19 @@ export const cadGenerationPipeline = task({
       artifact_count: artifactRows.length,
     });
 
+    // ── Step 8.5: Update design_learning_records (fire-and-forget) ──
+    try {
+      await supabase
+        .from("design_learning_records")
+        .update({
+          generation_status: "success",
+          completion_time_ms: cadResult.duration_ms ?? null,
+        })
+        .eq("job_id", job_id);
+    } catch {
+      // Non-blocking
+    }
+
     // ── Step 10: Notify web app webhook (notification only) ───
     if (webhookUrl) {
       await notifyWebhook(webhookUrl, webhookSecret, {
