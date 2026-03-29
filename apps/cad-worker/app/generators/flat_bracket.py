@@ -65,9 +65,15 @@ def generate(dims: Dict[str, Any], variant_type: str = "requested") -> Any:
     """Generate a flat bracket using build123d. Returns a build123d Solid."""
     try:
         from build123d import (
-            BuildPart, Box, Cylinder, fillet, countersink,
+            BuildPart, Box, Cylinder, fillet,
             Mode, Align, Locations, GridLocations
         )
+        # CounterSinkHole is the correct name in build123d 0.9.0
+        # (older 'countersink' alias was removed)
+        try:
+            from build123d import CounterSinkHole
+        except ImportError:
+            CounterSinkHole = None  # countersink not available; skip
         import build123d as bd
     except ImportError as e:
         raise ImportError("build123d is not installed") from e

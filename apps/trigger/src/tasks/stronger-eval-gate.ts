@@ -10,6 +10,11 @@
  *   • Harmonia consensus = "approve_eval"
  *   • risk_score < 0.4
  *   • No regression vs. the current production prompt
+ *
+ * HARDENED (v2.1): All eval families now align to capability_registry
+ * production families only:
+ *   spacer, l_bracket, flat_bracket, u_bracket, hole_plate,
+ *   enclosure, standoff_block, adapter_bushing, cable_clip, simple_jig
  * ─────────────────────────────────────────────────────────────
  */
 
@@ -26,88 +31,124 @@ function getSupabaseClient() {
   return createClient(url, key);
 }
 
-// ── 10-case eval suite ────────────────────────────────────────
+/**
+ * Production families registered in capability_registry (maturity_level=proven):
+ *   spacer, l_bracket, flat_bracket, u_bracket, hole_plate,
+ *   enclosure, standoff_block, adapter_bushing, cable_clip, simple_jig
+ *
+ * All test cases below use ONLY these families.
+ * Non-production families (bolt, gear, pipe_fitting, hinge) are intentionally
+ * excluded — the NLU should return intent=clarify or flag unsupported_family
+ * for those requests.
+ */
+const PRODUCTION_FAMILIES = [
+  "spacer", "l_bracket", "flat_bracket", "u_bracket", "hole_plate",
+  "enclosure", "standoff_block", "adapter_bushing", "cable_clip", "simple_jig",
+] as const;
+
+// ── 10-case eval suite (v2.1 — production families only) ─────
 const EVAL_CASES_V2 = [
-  // Basic spacer
+  // tc-01: Basic spacer — all dims present
   {
-    id: "tc-01", description: "Basic spacer with all dims",
+    id: "tc-01",
+    description: "Basic spacer with all dims",
     transcript: "I need a spacer that is 5mm tall, 20mm outer diameter, 10mm inner diameter",
-    expected_intent: "design_part", expected_family: "spacer",
+    expected_intent: "design_part",
+    expected_family: "spacer",
     expected_dims: { height: 5, outer_diameter: 20, inner_diameter: 10 },
     expected_missing: [],
   },
-  // Bolt with partial dims
+  // tc-02: L-bracket — all dims present
   {
-    id: "tc-02", description: "Bolt missing thread pitch",
-    transcript: "Make me an M8 bolt, 30mm long",
-    expected_intent: "design_part", expected_family: "bolt",
-    expected_dims: { length: 30 },
-    expected_missing_contains: ["thread_pitch"],
-  },
-  // Ambiguous family
-  {
-    id: "tc-03", description: "Ambiguous request needing clarification",
-    transcript: "I want a round thing for my printer",
-    expected_intent: "clarify", expected_family: null,
-    expected_dims: {},
-    expected_missing: [],
-  },
-  // Bracket
-  {
-    id: "tc-04", description: "Bracket with all dims",
+    id: "tc-02",
+    description: "L-bracket with all dims",
     transcript: "Create an L-bracket, 50mm wide, 40mm tall, 3mm thick",
-    expected_intent: "design_part", expected_family: "bracket",
+    expected_intent: "design_part",
+    expected_family: "l_bracket",
     expected_dims: { width: 50, height: 40, thickness: 3 },
     expected_missing: [],
   },
-  // Gear
+  // tc-03: Ambiguous — should clarify
   {
-    id: "tc-05", description: "Gear with partial dims",
-    transcript: "I need a spur gear with 20 teeth",
-    expected_intent: "design_part", expected_family: "gear",
-    expected_dims: { tooth_count: 20 },
-    expected_missing_contains: ["module_mm"],
-  },
-  // Pipe fitting
-  {
-    id: "tc-06", description: "Pipe fitting",
-    transcript: "Make a pipe fitting for 25mm pipe, 15mm long",
-    expected_intent: "design_part", expected_family: "pipe_fitting",
-    expected_dims: { pipe_diameter: 25, length: 15 },
-    expected_missing: [],
-  },
-  // Hinge
-  {
-    id: "tc-07", description: "Hinge with all dims",
-    transcript: "Design a hinge, 60mm wide, 30mm per leaf, 3mm thick",
-    expected_intent: "design_part", expected_family: "hinge",
-    expected_dims: { width: 60, leaf_length: 30, thickness: 3 },
-    expected_missing: [],
-  },
-  // Non-design intent
-  {
-    id: "tc-08", description: "Non-design intent (question)",
-    transcript: "What materials work best for outdoor parts?",
-    expected_intent: "question", expected_family: null,
+    id: "tc-03",
+    description: "Ambiguous request needing clarification",
+    transcript: "I want a round thing for my printer",
+    expected_intent: "clarify",
+    expected_family: null,
     expected_dims: {},
     expected_missing: [],
   },
-  // Metric conversion
+  // tc-04: Flat bracket — partial dims
   {
-    id: "tc-09", description: "Dimensions given in inches",
+    id: "tc-04",
+    description: "Flat bracket with partial dims (missing thickness)",
+    transcript: "Make a flat bracket, 80mm long, 30mm wide",
+    expected_intent: "design_part",
+    expected_family: "flat_bracket",
+    expected_dims: { length: 80, width: 30 },
+    expected_missing_contains: ["thickness"],
+  },
+  // tc-05: Enclosure — all dims
+  {
+    id: "tc-05",
+    description: "Enclosure with all dims",
+    transcript: "I need a small enclosure box, 100mm long, 60mm wide, 40mm tall, 2mm wall thickness",
+    expected_intent: "design_part",
+    expected_family: "enclosure",
+    expected_dims: { length: 100, width: 60, height: 40 },
+    expected_missing: [],
+  },
+  // tc-06: Hole plate — partial dims
+  {
+    id: "tc-06",
+    description: "Hole plate with partial dims",
+    transcript: "Make a plate with holes, 100mm by 60mm, 5mm thick",
+    expected_intent: "design_part",
+    expected_family: "hole_plate",
+    expected_dims: { length: 100, width: 60, thickness: 5 },
+    expected_missing: [],
+  },
+  // tc-07: Non-design intent (question)
+  {
+    id: "tc-07",
+    description: "Non-design intent (question)",
+    transcript: "What materials work best for outdoor parts?",
+    expected_intent: "question",
+    expected_family: null,
+    expected_dims: {},
+    expected_missing: [],
+  },
+  // tc-08: Standoff block — all dims
+  {
+    id: "tc-08",
+    description: "Standoff block with all dims",
+    transcript: "I need a standoff block, 20mm tall, 15mm wide, 15mm deep",
+    expected_intent: "design_part",
+    expected_family: "standoff_block",
+    expected_dims: { height: 20, width: 15, depth: 15 },
+    expected_missing: [],
+  },
+  // tc-09: Spacer with inch dimensions (unit handling)
+  {
+    id: "tc-09",
+    description: "Spacer with inch dimensions",
     transcript: "I need a spacer, 2 inches tall, 1 inch outer diameter, half inch inner diameter",
-    expected_intent: "design_part", expected_family: "spacer",
+    expected_intent: "design_part",
+    expected_family: "spacer",
     expected_dims: {},
     expected_missing: [],
     note: "Should convert or flag unit mismatch",
   },
-  // Complex multi-part
+  // tc-10: Unsupported family (bolt) — should clarify or flag unsupported
   {
-    id: "tc-10", description: "Complex request with multiple parts mentioned",
-    transcript: "I need a bolt and nut set, M6, 25mm bolt length",
-    expected_intent: "design_part", expected_family: "bolt",
-    expected_dims: { length: 25 },
-    expected_missing_contains: ["thread_pitch"],
+    id: "tc-10",
+    description: "Unsupported family (bolt) — should not claim to design it",
+    transcript: "Make me an M8 bolt, 30mm long",
+    expected_intent: "clarify",
+    expected_family: null,
+    expected_dims: {},
+    expected_missing: [],
+    note: "bolt is not in capability_registry; NLU must return clarify or unsupported_family",
   },
 ];
 
@@ -135,9 +176,10 @@ export const strongerEvalGate = task({
       .single();
     if (promptErr || !promptRow) throw new Error(`Prompt version not found: ${prompt_version_id}`);
 
-    logger.log("Running 10-case eval suite", {
+    logger.log("Running 10-case eval suite (v2.1 — production families only)", {
       prompt_version_id,
       version: promptRow.version,
+      production_families: PRODUCTION_FAMILIES,
     });
 
     // ── Load current production prompt for regression check ───
@@ -185,7 +227,15 @@ export const strongerEvalGate = task({
 
       // Family check
       if (tc.expected_family === null) {
-        score++;
+        // Expect null/undefined family for clarify/question intents
+        if (!llmResult.family || llmResult.family === null) {
+          score++;
+        } else {
+          // Also pass if family is not in production families (unsupported)
+          const isProduction = PRODUCTION_FAMILIES.includes(llmResult.family as typeof PRODUCTION_FAMILIES[number]);
+          if (!isProduction) score++;
+          else notes.push(`FAIL family: expected null/unsupported, got production family=${llmResult.family}`);
+        }
       } else if (llmResult.family === tc.expected_family) {
         score++;
       } else {
@@ -247,16 +297,18 @@ export const strongerEvalGate = task({
       eval_results_json: {
         eval_run_id: `stronger-eval-${Date.now()}`,
         evaluated_at: new Date().toISOString(),
+        eval_suite_version: "v2.1",
         overall_score: overallScore,
         pass_count: passCount,
         total_cases: EVAL_CASES_V2.length,
         passed: evalPassed,
         regression_risk: regressionRisk,
+        production_families_only: true,
         test_cases: results,
       },
       eval_score: overallScore,
       eval_passed: evalPassed,
-      eval_suite_version: "v2",
+      eval_suite_version: "v2.1",
       regression_risk_score: regressionRisk,
     }).eq("id", prompt_version_id);
 
@@ -278,13 +330,15 @@ export const strongerEvalGate = task({
     const debateResult = await runHarmoniaDebate({
       topic_type: "prompt_improvement",
       source_record_ids: [prompt_version_id],
-      topic_summary: `Promote prompt version ${promptRow.version as string} to production (eval score: ${overallScore.toFixed(2)}, ${passCount}/10 cases passed)`,
+      topic_summary: `Promote prompt version ${promptRow.version as string} to production (eval score: ${overallScore.toFixed(2)}, ${passCount}/10 cases passed, suite v2.1 production-families-only)`,
       proposer_context: {
         prompt_version_id,
         version: promptRow.version,
         eval_score: overallScore,
         pass_count: passCount,
         regression_risk: regressionRisk,
+        eval_suite_version: "v2.1",
+        production_families_only: true,
         current_production_version: prodPrompt?.version ?? "none",
         current_production_score: prodPrompt?.eval_score ?? 0,
         eval_results_summary: results.map((r) => ({
