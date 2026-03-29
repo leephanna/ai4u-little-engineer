@@ -188,7 +188,7 @@ export interface ModelSpec {
 // Default model assignments for Harmonia roles
 export const HARMONIA_MODELS = {
   proposer: { provider: "openai" as Provider, model: "gpt-4.1-mini" },
-  critic:   { provider: "anthropic" as Provider, model: "claude-3-haiku-20240307" },
+  critic:   { provider: "anthropic" as Provider, model: "claude-haiku-4-5" },
   judge:    { provider: "openai" as Provider, model: "gpt-4.1-mini" },
   cluster:  { provider: "google" as Provider, model: "gemini-2.5-flash" },
 } as const;
@@ -211,6 +211,7 @@ export function estimateCostUsd(resp: AiResponse): number {
   const rates: Record<string, { in: number; out: number }> = {
     "gpt-4.1-mini":              { in: 0.0004,  out: 0.0016  },
     "claude-3-haiku-20240307":   { in: 0.00025, out: 0.00125 },
+    "claude-haiku-4-5":          { in: 0.00025, out: 0.00125 },
     "gemini-2.5-flash":          { in: 0.00015, out: 0.0006  },
   };
   const r = rates[resp.model] ?? { in: 0.001, out: 0.003 };
