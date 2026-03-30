@@ -15,6 +15,8 @@ import { ValidationBadge } from "@/components/jobs/ValidationBadge";
 import { RevisionPanel } from "@/components/jobs/RevisionPanel";
 import { SharePanel } from "@/components/SharePanel";
 import { TagEditor } from "@/components/TagEditor";
+import { PrintEstimatePanel } from "@/components/jobs/PrintEstimatePanel";
+import { FeedbackUploadWidget } from "@/components/jobs/FeedbackUploadWidget";
 
 interface PageProps {
   params: Promise<{ id: string }>;
@@ -166,6 +168,24 @@ export default async function JobDetailPage({ params }: PageProps) {
           </section>
         )}
 
+        {/* Print Estimates + Save to Library */}
+        {latestRun?.status === "success" && (
+          <section>
+            <h2 className="text-sm font-medium text-steel-400 uppercase tracking-wide mb-3">
+              Print Info
+            </h2>
+            <PrintEstimatePanel
+              jobId={id}
+              jobTitle={job.title}
+              family={(job as Job & { selected_family?: string }).selected_family ?? null}
+              material={(latestSpec as PartSpec & { material?: string })?.material ?? null}
+              printTimeMinutes={null}
+              stlSizeBytes={artifacts.find(a => a.kind === "stl")?.file_size_bytes ?? null}
+              status={job.status}
+            />
+          </section>
+        )}
+
         {/* Approval Panel */}
         {isAwaitingApproval && latestRun && (
           <section>
@@ -216,6 +236,19 @@ export default async function JobDetailPage({ params }: PageProps) {
                 <p className="text-steel-400 text-sm mt-2">{latestApproval.notes}</p>
               )}
             </div>
+          </section>
+        )}
+
+        {/* Feedback Photo Upload — shown after printing */}
+        {job.status === "printed" && (
+          <section>
+            <h2 className="text-sm font-medium text-steel-400 uppercase tracking-wide mb-3">
+              Print Feedback
+            </h2>
+            <FeedbackUploadWidget
+              feedbackId={id}
+              jobId={id}
+            />
           </section>
         )}
 

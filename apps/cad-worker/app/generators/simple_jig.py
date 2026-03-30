@@ -3,6 +3,12 @@ Simple Jig Generator — build123d
 Generates a rectangular drilling/assembly jig with a grid of guide holes.
 Useful for consistent hole placement in wood, metal, or plastic panels.
 
+A jig is a functional fixture. The geometry is intentionally kept minimal:
+a flat plate with through-holes and optional raised drill bushings. No
+cosmetic fillets are applied — filleting all bottom edges (including hole
+circles) inflates the STL mesh by 15–20× and produces geometry that does
+not reflect what a machinist would actually print.
+
 Required dimensions (mm):
   - length: float       (jig length)
   - width: float        (jig width)
@@ -14,7 +20,6 @@ Optional:
   - hole_cols: int                (number of hole columns, default 3)
   - hole_margin_mm: float         (edge margin to first hole, default 10.0)
   - bushing_height: float         (raised bushing height above plate, default 0)
-  - fillet_radius: float          (corner fillet, default 1.5)
 """
 from typing import Any, Dict
 import logging
@@ -22,7 +27,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 GENERATOR_NAME = "simple_jig"
-GENERATOR_VERSION = "1.0.0"
+GENERATOR_VERSION = "1.1.0"  # bumped: removed mesh-bloating fillet pass
 
 MIN_LENGTH_MM = 30.0
 MIN_WIDTH_MM = 20.0
@@ -67,11 +72,18 @@ def validate_params(dims: Dict[str, Any]) -> list:
 
 
 def generate(dims: Dict[str, Any], variant_type: str = "requested") -> Any:
-    """Generate a simple jig using build123d. Returns a build123d Solid."""
+    """Generate a simple jig using build123d. Returns a build123d Solid.
+
+    Geometry is intentionally minimal: flat plate + guide holes (+ optional
+    raised bushings). No cosmetic fillets are applied because filleting the
+    bottom face's edges — which includes every hole circle — inflates the STL
+    mesh from ~150 KB to ~2.5 MB without adding any functional value for a
+    drilling jig.
+    """
     try:
         from build123d import (
-            BuildPart, Box, Cylinder, fillet,
-            Mode, Align, Locations
+            BuildPart, Box, Cylinder,
+            Mode, Align, Locations,
         )
     except ImportError as e:
         raise ImportError("build123d is not installed") from e
@@ -88,7 +100,6 @@ def generate(dims: Dict[str, Any], variant_type: str = "requested") -> Any:
     cols = int(dims.get("hole_cols", 3))
     margin = float(dims.get("hole_margin_mm", 10.0))
     bushing_h = float(dims.get("bushing_height", 0.0))
-    fillet_r = float(dims.get("fillet_radius", 1.5))
 
     if variant_type == "stronger":
         thickness *= 1.3
@@ -133,18 +144,6 @@ def generate(dims: Dict[str, Any], variant_type: str = "requested") -> Any:
                 align=(Align.CENTER, Align.CENTER, Align.MAX),
                 mode=Mode.SUBTRACT,
             )
-
-        # Corner fillets
-        if fillet_r > 0:
-            try:
-                import build123d as bd
-                bottom_edges = part.edges().filter_by_position(
-                    axis=bd.Axis.Z, minimum=-0.1, maximum=0.1
-                )
-                if bottom_edges:
-                    fillet(bottom_edges, radius=min(fillet_r, thickness / 3))
-            except Exception as e:
-                logger.warning(f"Fillet skipped: {e}")
 
     return part.part
 

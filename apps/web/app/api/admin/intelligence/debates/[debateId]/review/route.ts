@@ -51,13 +51,15 @@ export async function POST(
   }
 
   // Write to decision ledger
-  await supabase.from("decision_ledger").insert({
-    job_id: null,
-    step: "operator_review",
-    decision_reason: `Operator ${decision} debate ${debateId}${notes ? `: ${notes}` : ""}`,
-    inputs: { debate_id: debateId, decision },
-    outputs: { reviewed_by: user.id, reviewed_at: new Date().toISOString() },
-  }).catch(() => { /* non-blocking */ });
+  try {
+    await supabase.from("decision_ledger").insert({
+      job_id: null,
+      step: "operator_review",
+      decision_reason: `Operator ${decision} debate ${debateId}${notes ? `: ${notes}` : ""}`,
+      inputs: { debate_id: debateId, decision },
+      outputs: { reviewed_by: user.id, reviewed_at: new Date().toISOString() },
+    });
+  } catch { /* non-blocking */ }
 
   return NextResponse.json({ success: true, decision });
 }

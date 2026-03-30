@@ -198,16 +198,18 @@ Respond with JSON:
           status: finalStatus,
         });
       }
-    }
+    } // end for (const insight of insights)
 
-    // ── Decision ledger ───────────────────────────────────────
-    await supabase.from("decision_ledger").insert({
-      job_id: null,
-      step: "tolerance_propose",
-      decision_reason: `Proposed ${insertedInsights.length} tolerance insights from ${feedbackRows.length} poor-fit feedback records`,
-      inputs: { lookback_days, min_evidence_count, feedback_count: feedbackRows.length },
-      outputs: { insights: insertedInsights, insight_count: insertedInsights.length },
-    }).catch(() => { /* non-blocking */ });
+    // ── Decision ledger ──────────────────────────────────────────────────
+    try {
+      await supabase.from("decision_ledger").insert({
+        job_id: null,
+        step: "tolerance_propose",
+        decision_reason: `Proposed ${insertedInsights.length} tolerance insights from ${feedbackRows.length} poor-fit feedback records`,
+        inputs: { lookback_days, min_evidence_count, feedback_count: feedbackRows.length },
+        outputs: { insights: insertedInsights, insight_count: insertedInsights.length },
+      });
+    } catch { /* non-blocking */ }
 
     return {
       evidence_count: feedbackRows.length,

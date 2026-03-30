@@ -371,6 +371,36 @@ export default async function AdminPage() {
           </div>
         </section>
 
+        {/* Operator Console Links */}
+        <section>
+          <h2 className="text-sm font-medium text-steel-400 uppercase tracking-wide mb-4">
+            Operator Console
+          </h2>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <Link href="/admin/queue">
+              <div className="card hover:border-brand-500/50 transition-colors cursor-pointer">
+                <div className="text-2xl mb-2">📋</div>
+                <h3 className="font-semibold text-steel-100">Job Queue</h3>
+                <p className="text-steel-500 text-xs mt-1">Live pipeline viewer — in-flight, failed, all jobs</p>
+              </div>
+            </Link>
+            <Link href="/admin/feedback">
+              <div className="card hover:border-brand-500/50 transition-colors cursor-pointer">
+                <div className="text-2xl mb-2">🖨️</div>
+                <h3 className="font-semibold text-steel-100">Print Feedback</h3>
+                <p className="text-steel-500 text-xs mt-1">Review user print results and AI analysis</p>
+              </div>
+            </Link>
+            <Link href="/admin/intelligence">
+              <div className="card hover:border-brand-500/50 transition-colors cursor-pointer">
+                <div className="text-2xl mb-2">🧠</div>
+                <h3 className="font-semibold text-steel-100">Intelligence Console</h3>
+                <p className="text-steel-500 text-xs mt-1">Harmonia debates, tolerance insights, capabilities</p>
+              </div>
+            </Link>
+          </div>
+        </section>
+
         {/* Owner setup instructions */}
         <section>
           <h2 className="text-sm font-medium text-steel-400 uppercase tracking-wide mb-4">

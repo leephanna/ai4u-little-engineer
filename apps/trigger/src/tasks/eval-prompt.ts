@@ -176,7 +176,7 @@ function scoreTestCase(
 export const evalPrompt = task({
   id: "eval-prompt",
   maxDuration: 120,
-  run: async (payload: unknown, ctx) => {
+  run: async (payload: unknown, { ctx }) => {
     const { prompt_version_id } = EvalPayload.parse(payload);
     const supabase = getSupabaseClient();
     const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
@@ -257,7 +257,7 @@ export const evalPrompt = task({
       .from("prompt_versions")
       .update({
         eval_results_json: {
-          eval_run_id: ctx.run.id,
+          eval_run_id: ctx.run?.id ?? "unknown",
           evaluated_at: new Date().toISOString(),
           overall_score: overallScore,
           pass_count: passCount,

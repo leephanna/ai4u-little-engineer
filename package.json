@@ -16,7 +16,9 @@
     "test": "turbo run test",
     "clean": "turbo run clean",
     "trigger:dev": "turbo run dev --filter=./apps/trigger",
-    "trigger:deploy": "turbo run deploy --filter=./apps/trigger"
+    "trigger:deploy": "turbo run deploy --filter=./apps/trigger",
+    "compliance": "bash scripts/compliance.sh",
+    "eval:live": "python3 scripts/eval-live.py"
   },
   "devDependencies": {
     "@trigger.dev/sdk": "^4.4.3",

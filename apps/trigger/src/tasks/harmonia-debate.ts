@@ -110,23 +110,25 @@ export const harmoniaDebate = task({
     logger.log("Debate persisted", { debate_id: debateId });
 
     // ── Write decision ledger entry ───────────────────────────
-    await supabase.from("decision_ledger").insert({
-      job_id: null,
-      step: "debate_judge",
-      decision_reason: `Harmonia debate (${ctx.topic_type}): ${result.final_recommendation} — risk=${result.risk_score.toFixed(2)}, novelty=${result.novelty_score.toFixed(2)}`,
-      inputs: {
-        topic_type: ctx.topic_type,
-        topic_summary: ctx.topic_summary,
-        source_record_ids: ctx.source_record_ids,
-      },
-      outputs: {
-        debate_id: debateId,
-        final_recommendation: result.final_recommendation,
-        risk_score: result.risk_score,
-        novelty_score: result.novelty_score,
-        total_tokens: result.total_tokens,
-      },
-    }).catch(() => { /* non-blocking */ });
+    try {
+      await supabase.from("decision_ledger").insert({
+        job_id: null,
+        step: "debate_judge",
+        decision_reason: `Harmonia debate (${ctx.topic_type}): ${result.final_recommendation} — risk=${result.risk_score.toFixed(2)}, novelty=${result.novelty_score.toFixed(2)}`,
+        inputs: {
+          topic_type: ctx.topic_type,
+          topic_summary: ctx.topic_summary,
+          source_record_ids: ctx.source_record_ids,
+        },
+        outputs: {
+          debate_id: debateId,
+          final_recommendation: result.final_recommendation,
+          risk_score: result.risk_score,
+          novelty_score: result.novelty_score,
+          total_tokens: result.total_tokens,
+        },
+      });
+    } catch { /* non-blocking */ }
 
     return {
       debate_id: debateId,
