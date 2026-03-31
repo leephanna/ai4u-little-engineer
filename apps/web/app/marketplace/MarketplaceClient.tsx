@@ -2,6 +2,7 @@
 
 import { useState, useTransition } from "react";
 import Link from "next/link";
+import { VplGradeBadge } from "@/components/VplGradeBadge";
 
 interface Project {
   id: string;
@@ -23,6 +24,8 @@ interface Project {
   creator_id: string | null;
   created_by: string | null;
   created_at: string;
+  print_success_score: number | null;
+  vpl_grade: string | null;
 }
 
 interface Props {
@@ -256,7 +259,10 @@ export default function MarketplaceClient({
                       <h3 className="font-semibold text-gray-900 text-sm leading-tight line-clamp-2">
                         {project.title}
                       </h3>
-                      <ScoreBadge score={project.success_score} />
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <VplGradeBadge score={project.print_success_score ?? null} grade={project.vpl_grade ?? null} />
+                        <ScoreBadge score={project.success_score} />
+                      </div>
                     </div>
                     <span className="inline-block mt-1 text-xs text-gray-500 bg-gray-100 px-2 py-0.5 rounded">
                       {FAMILY_LABELS[project.family] ?? project.family}

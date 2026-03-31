@@ -35,6 +35,7 @@
  */
 
 import { task, logger, AbortTaskRunError } from "@trigger.dev/sdk/v3";
+import { runVirtualPrintLab } from "./run-virtual-print-lab";
 import { createClient } from "@supabase/supabase-js";
 import { z } from "zod";
 
@@ -469,6 +470,23 @@ export const cadGenerationPipeline = task({
       artifact_count: artifactRows.length,
     });
 
+    // ── Step 9.5: Trigger Virtual Print Lab (fire-and-forget) ─────────
+    try {
+      const stlArtifact = cadArtifacts.find((a) => a.kind === "stl" && a.storage_path);
+      if (stlArtifact?.storage_path) {
+        await runVirtualPrintLab.trigger({
+          job_id,
+          cad_run_id,
+          stl_storage_path: stlArtifact.storage_path,
+        });
+        logger.info("VPL task triggered", { job_id, cad_run_id });
+      } else {
+        logger.warn("VPL: no STL artifact found — skipping", { job_id });
+      }
+    } catch (vplErr) {
+      // Non-blocking — VPL failure must never fail the job
+      logger.error("VPL: failed to trigger", { error: String(vplErr), job_id });
+    }
     // ── Step 8.5: Update design_learning_records (fire-and-forget) ──
     try {
       await supabase

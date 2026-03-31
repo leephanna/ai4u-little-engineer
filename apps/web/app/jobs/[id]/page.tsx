@@ -17,6 +17,7 @@ import { SharePanel } from "@/components/SharePanel";
 import { TagEditor } from "@/components/TagEditor";
 import { PrintEstimatePanel } from "@/components/jobs/PrintEstimatePanel";
 import { FeedbackUploadWidget } from "@/components/jobs/FeedbackUploadWidget";
+import { VirtualPrintLabPanel } from "@/components/jobs/VirtualPrintLabPanel";
 
 interface PageProps {
   params: Promise<{ id: string }>;
@@ -168,6 +169,18 @@ export default async function JobDetailPage({ params }: PageProps) {
           </section>
         )}
 
+        {/* Virtual Print Lab */}
+        {latestRun?.status === "success" && (
+          <section>
+            <h2 className="text-sm font-medium text-steel-400 uppercase tracking-wide mb-3">
+              Virtual Print Lab
+            </h2>
+            <VirtualPrintLabPanel
+              jobId={id}
+              cadRunId={latestRun.id}
+            />
+          </section>
+        )}
         {/* Print Estimates + Save to Library */}
         {latestRun?.status === "success" && (
           <section>

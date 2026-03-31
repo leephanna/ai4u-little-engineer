@@ -31,6 +31,8 @@ interface Project {
   creator_id: string | null;
   created_by: string | null;
   created_at: string;
+  print_success_score: number | null;
+  vpl_grade: string | null;
 }
 
 export default async function MarketplacePage() {
@@ -46,7 +48,7 @@ export default async function MarketplacePage() {
   const { data: projects } = await serviceSupabase
     .from("projects")
     .select(
-      "id, title, description, family, price, is_public, stl_url, step_url, success_score, success_rate, successful_prints, failed_prints, best_material, usage_count, rating, earnings_total, creator_id, created_by, created_at"
+      "id, title, description, family, price, is_public, stl_url, step_url, success_score, success_rate, successful_prints, failed_prints, best_material, usage_count, rating, earnings_total, creator_id, created_by, created_at, print_success_score, vpl_grade"
     )
     .eq("is_public", true)
     .order("success_score", { ascending: false, nullsFirst: false })

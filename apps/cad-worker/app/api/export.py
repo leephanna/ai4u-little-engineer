@@ -5,7 +5,6 @@ POST /export — Re-export an existing CAD artifact in a different format.
 
 import logging
 from fastapi import APIRouter, HTTPException
-from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from typing import Literal, Optional
 

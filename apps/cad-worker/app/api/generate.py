@@ -22,7 +22,6 @@ from app.schemas.generation_request import (
     ArtifactResult,
     ValidationReport,
 )
-from app.schemas.part_spec import PartSpec
 from app.generators import get_generator, is_supported, list_partial_families
 from app.utils.print_time import estimate_print_time_minutes
 from app.validators.dimensions import validate_bounding_box, validate_volume

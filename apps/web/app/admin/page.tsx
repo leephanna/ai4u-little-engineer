@@ -377,6 +377,13 @@ export default async function AdminPage() {
             Operator Console
           </h2>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <Link href="/admin/vpl">
+              <div className="card hover:border-brand-500/50 transition-colors cursor-pointer">
+                <div className="text-2xl mb-2">🧪</div>
+                <h3 className="font-semibold text-steel-100">Virtual Print Lab</h3>
+                <p className="text-steel-500 text-xs mt-1">Geometry validation, slicer simulation, and printability scores</p>
+              </div>
+            </Link>
             <Link href="/admin/queue">
               <div className="card hover:border-brand-500/50 transition-colors cursor-pointer">
                 <div className="text-2xl mb-2">📋</div>

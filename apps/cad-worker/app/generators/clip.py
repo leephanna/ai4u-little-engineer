@@ -18,7 +18,6 @@ Optional:
 
 from typing import Any, Dict
 import logging
-import math
 
 logger = logging.getLogger(__name__)
 
