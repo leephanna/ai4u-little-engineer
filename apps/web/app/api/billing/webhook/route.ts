@@ -93,6 +93,45 @@ export async function POST(req: NextRequest) {
         const subscriptionId = session.subscription as string;
         const customerId = session.customer as string;
 
+        // ── Design purchase unlock ──────────────────────────────────
+        if (session.metadata?.type === "design_purchase") {
+          const projectId = session.metadata?.project_id;
+          const buyerId = session.metadata?.buyer_id;
+          const amountTotal = (session.amount_total ?? 0) / 100;
+          if (projectId && buyerId) {
+            await supabase
+              .from("design_purchases")
+              .update({
+                status: "completed",
+                stripe_payment_id: typeof session.payment_intent === "string"
+                  ? session.payment_intent
+                  : null,
+                amount_paid: amountTotal,
+                completed_at: new Date().toISOString(),
+              })
+              .eq("project_id", projectId)
+              .eq("buyer_id", buyerId);
+
+            // Credit 80% earnings to the creator
+            const { data: project } = await supabase
+              .from("projects")
+              .select("creator_id, created_by, earnings_total")
+              .eq("id", projectId)
+              .single();
+
+            const creatorId = project?.creator_id ?? project?.created_by;
+            if (creatorId) {
+              const currentEarnings = Number(project?.earnings_total ?? 0);
+              const creatorShare = Math.round(amountTotal * 0.8 * 100) / 100;
+              await supabase
+                .from("projects")
+                .update({ earnings_total: currentEarnings + creatorShare })
+                .eq("id", projectId);
+            }
+          }
+          break;
+        }
+
         if (!userId) break;
 
         let periodEnd: string | null = null;
