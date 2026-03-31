@@ -3,7 +3,7 @@ Generator Registry
 Maps part family names to their generator modules.
 """
 
-from typing import Any, Callable, Dict, Optional, Tuple
+from typing import Any, Dict
 
 # Import all generator modules
 from app.generators import spacer, l_bracket, u_bracket, hole_plate, clip, enclosure

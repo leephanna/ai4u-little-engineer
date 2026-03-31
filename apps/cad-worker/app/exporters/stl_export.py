@@ -5,7 +5,7 @@ Exports a build123d part to STL format (binary or ASCII).
 
 import os
 import logging
-from typing import Any, Optional
+from typing import Any
 
 logger = logging.getLogger(__name__)
 

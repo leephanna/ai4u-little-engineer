@@ -19,7 +19,6 @@ Optional:
 
 from typing import Any, Dict
 import logging
-import math
 
 logger = logging.getLogger(__name__)
 
@@ -59,7 +58,6 @@ def generate(dims: Dict[str, float], variant_type: str = "requested") -> Any:
             BuildPart, Box, Cylinder, fillet, Mode,
             Location, Locations, Axis
         )
-        import build123d as bd
     except ImportError as e:
         raise ImportError("build123d is not installed") from e
 
@@ -112,7 +110,6 @@ def generate(dims: Dict[str, float], variant_type: str = "requested") -> Any:
 
         # Mounting holes in flanges
         if hole_count > 0 and actual_hole_d > 0:
-            flange_zone_x = (total_width / 2 - flange_w / 2)
             hole_positions_x = [
                 -(total_width / 2 - flange_w / 2),
                 (total_width / 2 - flange_w / 2),

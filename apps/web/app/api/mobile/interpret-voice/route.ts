@@ -21,10 +21,6 @@ import {
   PART_FAMILY_LABELS,
 } from "@ai4u/shared";
 
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-});
-
 // Fallback system prompt (used if DB lookup fails)
 const FALLBACK_SYSTEM_PROMPT = `You are an expert engineering assistant for AI4U Little Engineer, a voice-first CAD design app.
 Your job is to interpret natural language requests from machinists and engineers and extract structured part specifications.
@@ -85,6 +81,9 @@ async function writeDecisionLedger(
 }
 
 export async function POST(request: NextRequest) {
+  const openai = new OpenAI({
+    apiKey: process.env.OPENAI_API_KEY,
+  });
   const startMs = Date.now();
   try {
     // ── Auth ──────────────────────────────────────────────────

@@ -14,7 +14,6 @@ Optional:
 """
 from typing import Any, Dict
 import logging
-import math
 
 logger = logging.getLogger(__name__)
 
@@ -78,7 +77,7 @@ def generate(dims: Dict[str, Any], variant_type: str = "requested") -> Any:
     with BuildPart() as part:
         if shape == "hex":
             # Hexagonal standoff
-            from build123d import BuildSketch, make_face
+            from build123d import BuildSketch
             with BuildSketch() as sk:
                 RegularPolygon(radius=base_width / 2, side_count=6)
             extrude(sk.sketch, amount=height)

@@ -69,7 +69,7 @@ def generate(dims: Dict[str, Any], variant_type: str = "requested") -> Any:
     """Generate an adapter bushing using build123d. Returns a build123d Solid."""
     try:
         from build123d import (
-            BuildPart, Cylinder, chamfer, Mode, Align, GeomType, Location
+            BuildPart, Cylinder, chamfer, Mode, Align, GeomType
         )
     except ImportError as e:
         raise ImportError("build123d is not installed") from e

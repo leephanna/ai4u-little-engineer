@@ -4,7 +4,7 @@ POST /validate — Run geometry validation on an existing CAD run.
 """
 
 import logging
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter
 from pydantic import BaseModel
 from typing import Optional, List
 

@@ -2,7 +2,7 @@
 Pydantic schemas for PartSpec — the structured representation of a part request.
 """
 
-from typing import Any, Dict, List, Literal, Optional
+from typing import Dict, List, Literal, Optional
 from pydantic import BaseModel, Field, field_validator
 
 
@@ -87,7 +87,7 @@ class PartSpec(BaseModel):
                     "dimensions": normalized,
                     "units": "mm",
                     "assumptions": self.assumptions + [
-                        f"All dimensions converted from inches to mm (×25.4)"
+                        "All dimensions converted from inches to mm (×25.4)"
                     ],
                 }
             )

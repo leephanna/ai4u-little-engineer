@@ -5,7 +5,6 @@ Exports a build123d part to STEP format.
 
 import os
 import logging
-from pathlib import Path
 from typing import Any, Optional
 
 logger = logging.getLogger(__name__)

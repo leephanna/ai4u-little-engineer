@@ -66,14 +66,9 @@ def generate(dims: Dict[str, Any], variant_type: str = "requested") -> Any:
     try:
         from build123d import (
             BuildPart, Box, Cylinder, fillet,
-            Mode, Align, Locations, GridLocations
+            Mode, Align, Locations
         )
         # CounterSinkHole is the correct name in build123d 0.9.0
-        # (older 'countersink' alias was removed)
-        try:
-            from build123d import CounterSinkHole
-        except ImportError:
-            CounterSinkHole = None  # countersink not available; skip
         import build123d as bd
     except ImportError as e:
         raise ImportError("build123d is not installed") from e
@@ -88,7 +83,6 @@ def generate(dims: Dict[str, Any], variant_type: str = "requested") -> Any:
     hole_diameter = float(dims.get("hole_diameter", 4.0))
     hole_count = int(dims.get("hole_count", 2))
     hole_margin = float(dims.get("hole_margin_mm", 8.0))
-    do_countersink = bool(dims.get("countersink", False))
     fillet_r = float(dims.get("fillet_radius", 1.0))
 
     # Stronger variant: increase thickness by 25%

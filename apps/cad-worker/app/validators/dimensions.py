@@ -3,7 +3,7 @@ Dimension Validators
 Validates that generated geometry meets specified dimensional requirements.
 """
 
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, List, Optional, Tuple
 import logging
 
 logger = logging.getLogger(__name__)

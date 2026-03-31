@@ -11,7 +11,6 @@ Formula based on empirical data from Bambu Lab, Prusa, and Ender 3 printers:
   - Print time = filament_volume / (nozzle_flow_rate * print_speed_factor)
 """
 import math
-from typing import Optional
 
 
 # Default FDM printing parameters

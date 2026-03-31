@@ -1,11 +1,7 @@
 name: Deploy CAD Worker to Cloud Run
 
 on:
-  push:
-    branches: [master]
-    paths:
-      - "apps/cad-worker/**"
-      - ".github/workflows/deploy-cad-worker.yml"
+  workflow_dispatch:   # manual only — CAD worker is on Render, not Cloud Run; push trigger disabled
 
 env:
   REGION: us-central1

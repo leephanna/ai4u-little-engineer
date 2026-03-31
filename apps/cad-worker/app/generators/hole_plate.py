@@ -125,7 +125,6 @@ def generate(dims: Dict[str, float], variant_type: str = "requested") -> Any:
     spacing_y = dims.get("hole_spacing_y", 0)
     fillet_r = dims.get("fillet_corners", DEFAULT_FILLET_MM)
     hole_oversize = dims.get("hole_oversize", FDM_HOLE_OVERSIZE_MM)
-    countersink = bool(dims.get("countersink", False))
 
     actual_hole_d = hole_d + hole_oversize
 
@@ -135,7 +134,6 @@ def generate(dims: Dict[str, float], variant_type: str = "requested") -> Any:
     elif variant_type == "print_optimized":
         # Reduce fillet for better bed adhesion
         fillet_r = min(fillet_r, 1.5)
-        countersink = False  # Countersinks are hard to print
 
     positions = _compute_hole_positions(
         length, width, hole_count, actual_hole_d, pattern, margin, spacing_x, spacing_y
