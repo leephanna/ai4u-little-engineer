@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import Link from "next/link";
 import { VplGradeBadge } from "@/components/VplGradeBadge";
+import { TrustBadge } from "@/components/TrustBadge";
 
 interface Project {
   id: string;
@@ -26,6 +27,9 @@ interface Project {
   created_at: string;
   print_success_score: number | null;
   vpl_grade: string | null;
+  // Trust Policy fields (migration 008)
+  trust_tier: string | null;
+  marketplace_allowed: boolean;
 }
 
 interface Props {
@@ -261,6 +265,7 @@ export default function MarketplaceClient({
                       </h3>
                       <div className="flex items-center gap-1.5 flex-wrap">
                         <VplGradeBadge score={project.print_success_score ?? null} grade={project.vpl_grade ?? null} />
+                        <TrustBadge trustTier={project.trust_tier} />
                         <ScoreBadge score={project.success_score} />
                       </div>
                     </div>

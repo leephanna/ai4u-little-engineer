@@ -34,16 +34,34 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Missing project_id" }, { status: 400 });
     }
 
-    // Fetch the project
+    // Fetch the project — include trust policy fields for gate check
     const { data: project, error: projectError } = await serviceSupabase
       .from("projects")
-      .select("id, title, description, price, is_public, stl_url, creator_id, created_by")
+      .select("id, title, description, price, is_public, stl_url, creator_id, created_by, trust_tier, marketplace_allowed")
       .eq("id", project_id)
       .single();
 
     if (projectError || !project) {
       return NextResponse.json({ error: "Project not found" }, { status: 404 });
     }
+
+    // ── TRUST POLICY GATE ────────────────────────────────────────────────────
+    // Hard enforcement: block purchase if trust policy has not approved this design.
+    // marketplace_allowed defaults to FALSE; it is only set to TRUE after the
+    // Trust Policy Engine evaluates a passing VPL result (trusted_commercial tier).
+    if (!project.marketplace_allowed) {
+      const tier = (project as { trust_tier?: string }).trust_tier ?? "unverified";
+      return NextResponse.json(
+        {
+          error: "This design is not eligible for marketplace purchase.",
+          reason: `Trust tier: ${tier}. Designs must pass VPL validation before they can be sold.`,
+          trust_tier: tier,
+          blocked_by: "trust_policy",
+        },
+        { status: 403 }
+      );
+    }
+    // ── END TRUST POLICY GATE ────────────────────────────────────────────────
 
     if (!project.price || project.price <= 0) {
       return NextResponse.json({ error: "This design is free — no purchase needed." }, { status: 400 });
