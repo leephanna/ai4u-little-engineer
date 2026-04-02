@@ -1,6 +1,7 @@
 "use client";
 import Link from "next/link";
 import { useState, useEffect } from "react";
+import ArtemisIIDemoCard from "@/components/intake/ArtemisIIDemoCard";
 
 // ── Animated tagline cycling through part types ──────────────────────────────
 const PART_TYPES = [
@@ -188,34 +189,108 @@ export default function LandingPage() {
       </nav>
 
       {/* ── Hero ── */}
-      <section className="relative max-w-5xl mx-auto px-6 pt-20 pb-16 text-center">
-        <div className="inline-flex items-center gap-2 bg-brand-950 border border-brand-800 text-brand-400 text-xs rounded-full px-3 py-1 mb-6">
-          <span className="w-1.5 h-1.5 bg-brand-400 rounded-full animate-pulse" />
-          10 parametric part families · Printer-aware tolerances · Free to start
+      <section className="relative max-w-5xl mx-auto px-6 pt-16 pb-12">
+        {/* AI4U Badge */}
+        <div className="flex justify-center mb-8">
+          <div className="flex items-center gap-3 bg-gradient-to-r from-brand-900 to-brand-950 border border-brand-700 rounded-2xl px-6 py-3 shadow-xl shadow-brand-900/40">
+            <div className="w-10 h-10 bg-gradient-to-br from-brand-500 to-brand-700 rounded-xl flex items-center justify-center shadow-md">
+              <span className="text-white font-black text-sm">AI</span>
+            </div>
+            <div>
+              <div className="text-brand-300 font-bold text-base leading-none">AI4U Little Engineer</div>
+              <div className="text-brand-500 text-xs mt-0.5">Universal Creation Platform</div>
+            </div>
+          </div>
         </div>
-        <h1 className="text-4xl sm:text-6xl font-bold text-steel-100 mb-4 leading-tight">
-          Describe it.
-          <br />
-          Print <AnimatedTagline />.
-        </h1>
-        <p className="text-steel-400 text-lg sm:text-xl max-w-2xl mx-auto mb-8">
-          AI4U Little Engineer turns plain-English descriptions into precision-fit STL and STEP
-          files — optimized for your specific 3D printer — in under 90 seconds.
-        </p>
-        <div className="flex flex-col sm:flex-row gap-3 justify-center">
-          <Link href="/signup" className="btn-primary text-base py-3 px-8">
-            Create Free Account
-          </Link>
-          <Link
-            href="/pricing"
-            className="btn-secondary text-base py-3 px-8"
-          >
-            See Pricing
-          </Link>
+
+        {/* Hero copy */}
+        <div className="text-center mb-10">
+          <h1 className="text-4xl sm:text-6xl font-bold text-steel-100 mb-4 leading-tight">
+            Type it. Upload it.
+            <br />
+            <span className="text-brand-400">Say it. Print it.</span>
+          </h1>
+          <p className="text-steel-400 text-lg sm:text-xl max-w-2xl mx-auto mb-6">
+            AI4U Little Engineer turns any input — text, photos, sketches, voice, or documents —
+            into precision 3D-printable designs. No CAD skills required.
+          </p>
+          <div className="flex flex-col sm:flex-row gap-3 justify-center mb-4">
+            <Link href="/signup" className="btn-primary text-base py-3 px-8">
+              Start Creating Free
+            </Link>
+            <Link href="/demo/artemis" className="btn-secondary text-base py-3 px-8">
+              🚀 Try Artemis II Demo
+            </Link>
+          </div>
+          <p className="text-steel-600 text-xs">
+            No credit card · No CAD software · Works for everyone
+          </p>
         </div>
-        <p className="text-steel-600 text-xs mt-4">
-          No credit card · No CAD software · No learning curve
-        </p>
+
+        {/* Consumer example chips */}
+        <div className="flex flex-wrap justify-center gap-2 mb-10">
+          {[
+            "Make a small replica of the PNG I uploaded",
+            "Turn my kid's sketch into a desk model",
+            "Make a custom wall sign from this SVG",
+            "Build a cable holder for my desk",
+            "Print the Artemis II launch pad demo",
+          ].map((ex) => (
+            <Link
+              key={ex}
+              href="/signup"
+              className="text-xs text-steel-400 bg-steel-800/80 border border-steel-700 hover:border-brand-600 hover:text-brand-300 rounded-full px-3 py-1.5 transition-colors"
+            >
+              &ldquo;{ex}&rdquo;
+            </Link>
+          ))}
+        </div>
+
+        {/* Two-column: Input modes + Artemis demo card */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {/* Input modes showcase */}
+          <div className="bg-steel-800/50 border border-steel-700 rounded-2xl p-6">
+            <h2 className="text-sm font-bold text-steel-300 uppercase tracking-wider mb-4">
+              Any input. Any idea.
+            </h2>
+            <div className="space-y-3">
+              {[
+                { icon: "⌨️", label: "Type it", desc: "Plain English — no jargon needed" },
+                { icon: "📎", label: "Upload it", desc: "PNG, JPG, PDF, SVG, DOCX, TXT" },
+                { icon: "🎤", label: "Say it", desc: "Voice input → instant interpretation" },
+                { icon: "🖼", label: "Sketch it", desc: "Photo of a drawing → printable model" },
+              ].map((item) => (
+                <div key={item.label} className="flex items-center gap-3">
+                  <div className="w-8 h-8 bg-steel-700 rounded-lg flex items-center justify-center text-base flex-shrink-0">
+                    {item.icon}
+                  </div>
+                  <div>
+                    <span className="text-sm font-semibold text-steel-200">{item.label}</span>
+                    <span className="text-xs text-steel-500 ml-2">{item.desc}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div className="mt-5 pt-4 border-t border-steel-700">
+              <p className="text-xs text-steel-500 mb-3">Made for everyone:</p>
+              <div className="flex flex-wrap gap-1.5">
+                {["Hobbyists", "Parents", "Teachers", "Makers", "Gift buyers", "Collectors", "Kids"].map((u) => (
+                  <span key={u} className="text-xs bg-steel-700 text-steel-400 rounded-full px-2.5 py-1">{u}</span>
+                ))}
+              </div>
+            </div>
+            <div className="mt-4">
+              <Link href="/signup" className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl bg-brand-600 hover:bg-brand-500 text-white font-semibold text-sm transition-all">
+                Start Creating →
+              </Link>
+            </div>
+          </div>
+
+          {/* Artemis II demo card */}
+          <div>
+            <ArtemisIIDemoCard />
+          </div>
+        </div>
       </section>
 
       {/* ── Problem section — 4 relatable tiles ── */}

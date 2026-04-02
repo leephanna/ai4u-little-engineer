@@ -48,3 +48,18 @@ This document tracks all files created or modified during the implementation of 
   - Built the UI panel to display the generated patent summary, including claims, abstract, and download/copy functionality.
 - **Modified:** `apps/web/app/jobs/[id]/page.tsx`
   - Integrated `InventionProtectionPanel` into the job detail page.
+
+## 7. Universal Intake Upgrade
+- **Created:** `apps/web/components/intake/UniversalInputComposer.tsx`
+- **Created:** `apps/web/components/intake/LivePrintPlan.tsx`
+- **Created:** `apps/web/components/intake/ClarificationChat.tsx`
+- **Created:** `apps/web/components/intake/VisualPreviewPanel.tsx`
+- **Created:** `apps/web/components/intake/UniversalCreatorFlow.tsx`
+- **Created:** `apps/web/components/intake/ArtemisIIDemoCard.tsx`
+- **Created:** `apps/web/app/demo/artemis/page.tsx`
+- **Created:** `apps/web/app/api/intake/interpret/route.ts`
+- **Created:** `apps/web/app/api/intake/upload/route.ts`
+- **Created:** `apps/web/app/api/intake/clarify/route.ts`
+- **Created:** `packages/db/migrations/010_universal_intake.sql`
+- **Created:** `apps/cad-worker/tests/test_universal_intake.py`
+- **Modified:** `apps/web/app/(marketing)/page.tsx` (Replaced hero section with Universal Input Composer and Artemis II Demo Card)
