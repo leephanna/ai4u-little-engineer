@@ -63,3 +63,16 @@ This document tracks all files created or modified during the implementation of 
 - **Created:** `packages/db/migrations/010_universal_intake.sql`
 - **Created:** `apps/cad-worker/tests/test_universal_intake.py`
 - **Modified:** `apps/web/app/(marketing)/page.tsx` (Replaced hero section with Universal Input Composer and Artemis II Demo Card)
+
+## 8. Dual-Lane Platform Upgrade
+- **Created:** `apps/web/app/api/demo/artemis/route.ts` (Dedicated API route for the Artemis II demo)
+- **Created:** `apps/web/app/api/intake/harmonia/route.ts` (Harmonia Merge Engine API route)
+- **Created:** `apps/web/lib/daedalus/types.ts` (Shared types for Daedalus Gate receipts)
+- **Created:** `apps/web/lib/daedalus/store.ts` (Utility for persisting Daedalus receipts to the database)
+- **Created:** `packages/db/migrations/011_daedalus_gate_receipts.sql` (Database migration for the `daedalus_receipts` table)
+- **Created:** `apps/web/app/admin/daedalus/page.tsx` (Operator dashboard for inspecting Daedalus receipts)
+- **Created:** `apps/web/components/DualLaneSection.tsx` (Homepage component rendering the Shop and Fun lanes)
+- **Created:** `apps/web/app/gallery/page.tsx` (Click-to-Make Gallery page with 16 featured project cards)
+- **Created:** `apps/cad-worker/tests/test_dual_lane_upgrade.py` (Comprehensive pytest suite for all new features)
+- **Modified:** `apps/web/components/intake/ArtemisIIDemoCard.tsx` (Updated to call the new `/api/demo/artemis` route instead of `/api/invent`)
+- **Modified:** `apps/web/app/(marketing)/page.tsx` (Inserted the `DualLaneSection` component above the fold)

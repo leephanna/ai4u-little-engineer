@@ -2,6 +2,7 @@
 import Link from "next/link";
 import { useState, useEffect } from "react";
 import ArtemisIIDemoCard from "@/components/intake/ArtemisIIDemoCard";
+import DualLaneSection from "@/components/DualLaneSection";
 
 // ── Animated tagline cycling through part types ──────────────────────────────
 const PART_TYPES = [
@@ -292,6 +293,9 @@ export default function LandingPage() {
           </div>
         </div>
       </section>
+
+      {/* ── Dual-lane section — Shop + Fun ── */}
+      <DualLaneSection />
 
       {/* ── Problem section — 4 relatable tiles ── */}
       <section className="max-w-5xl mx-auto px-6 py-16">

@@ -100,23 +100,16 @@ export default function ArtemisIIDemoCard() {
     setError(null);
 
     try {
-      const problemText = `Create a commemorative Artemis II rocket and launch pad scale model. ` +
-        `Height: ${scaleParams.height_mm}mm, base: ${scaleParams.base_mm}mm. ` +
-        `Consumer-safe simplification, printable without supports where possible. ` +
-        `Material: ${config.material}, quality: ${config.quality}. ` +
-        `This is a showcase/demo model inspired by the Artemis II mission — not an official NASA model.`;
-
-      const res = await fetch("/api/invent", {
+      // Use the dedicated Artemis demo route which correctly maps to a valid
+      // parametric family (standoff_block). The /api/invent route rejects
+      // concept models with confidence < 0.5 — this is the correct fix.
+      const res = await fetch("/api/demo/artemis", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          problem: problemText,
-          intake_mode: "concept_invention",
-          intake_family_candidate: "custom_shape",
-          intake_dimensions: {
-            height: scaleParams.height_mm,
-            base_width: scaleParams.base_mm,
-          },
+          scale: config.scale,
+          material: config.material,
+          quality: config.quality,
         }),
       });
 
