@@ -2,6 +2,8 @@ import { createClient } from "@/lib/supabase/server";
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import type { Metadata } from "next";
+import { BrandSignatureBlock } from "@/components/BrandSignatureBlock";
+import { AppFooter } from "@/components/AppFooter";
 
 interface Props {
   params: Promise<{ token: string }>;
@@ -220,6 +222,11 @@ export default async function SharedJobPage({ params }: Props) {
           </div>
         )}
 
+        {/* Brand Signature */}
+        <div className="card bg-steel-900/50 border-steel-800">
+          <BrandSignatureBlock showTagline />
+        </div>
+
         {/* CTA */}
         <div className="card bg-brand-900/30 border-brand-800 text-center py-8">
           <div className="text-3xl mb-3">🔧</div>
@@ -235,6 +242,7 @@ export default async function SharedJobPage({ params }: Props) {
           </Link>
         </div>
       </main>
+      <AppFooter />
     </div>
   );
 }

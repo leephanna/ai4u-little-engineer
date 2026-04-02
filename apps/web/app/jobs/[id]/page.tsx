@@ -18,6 +18,9 @@ import { TagEditor } from "@/components/TagEditor";
 import { PrintEstimatePanel } from "@/components/jobs/PrintEstimatePanel";
 import { FeedbackUploadWidget } from "@/components/jobs/FeedbackUploadWidget";
 import { VirtualPrintLabPanel } from "@/components/jobs/VirtualPrintLabPanel";
+import { BrandSignatureBlock } from "@/components/BrandSignatureBlock";
+import { ProjectImageGallery } from "@/components/ProjectImageGallery";
+import { InventionProtectionPanel } from "@/components/jobs/InventionProtectionPanel";
 
 interface PageProps {
   params: Promise<{ id: string }>;
@@ -113,6 +116,20 @@ export default async function JobDetailPage({ params }: PageProps) {
       </header>
 
       <main className="max-w-3xl mx-auto px-4 py-6 space-y-6">
+
+        {/* AI-Generated Visuals */}
+        {latestRun?.status === "success" && (
+          <section>
+            <h2 className="text-sm font-medium text-steel-400 uppercase tracking-wide mb-3">
+              AI Visuals
+            </h2>
+            <ProjectImageGallery
+              projectId={id}
+              images={[]}
+              isOwner={true}
+            />
+          </section>
+        )}
 
         {/* Part Spec Summary */}
         {latestSpec && (
@@ -286,6 +303,26 @@ export default async function JobDetailPage({ params }: PageProps) {
             initialToken={(job as Job & { share_token?: string | null }).share_token ?? null}
           />
         </section>
+        {/* Invention Protection Mode */}
+        {latestRun?.status === "success" && (
+          <section>
+            <h2 className="text-sm font-medium text-steel-400 uppercase tracking-wide mb-3">
+              Invention Protection
+            </h2>
+            <InventionProtectionPanel
+              jobId={id}
+              initialSummary={(job as Job & { patent_summary_json?: unknown }).patent_summary_json as Parameters<typeof InventionProtectionPanel>[0]["initialSummary"] ?? null}
+            />
+          </section>
+        )}
+
+        {/* Brand Signature */}
+        <section>
+          <div className="card bg-steel-900/50 border-steel-800">
+            <BrandSignatureBlock showTagline />
+          </div>
+        </section>
+
         {/* Job metadata */}
         <section>
           <h2 className="text-sm font-medium text-steel-400 uppercase tracking-wide mb-3">
