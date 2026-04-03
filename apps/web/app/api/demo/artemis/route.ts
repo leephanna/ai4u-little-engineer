@@ -19,6 +19,13 @@
  * This is the correct, honest, and technically achievable outcome for the
  * current parametric CAD engine.
  *
+ * Schema fix (commit after e7d553d):
+ *   - sessions insert: removed non-existent `problem_text` column
+ *   - jobs insert: removed non-existent `description` column; added
+ *     `requested_family` and `selected_family`
+ *   - part_specs insert: corrected column names to `dimensions_json`,
+ *     `assumptions_json`, `missing_fields_json` (schema uses _json suffix)
+ *
  * Daedalus Gate Receipt: included in response as `daedalus_receipt`.
  */
 import { NextRequest, NextResponse } from "next/server";
@@ -115,7 +122,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // ── Build problem text ──────────────────────────────────────
+    // ── Build problem text (for audit records only) ─────────────
     const problemText =
       `Artemis II commemorative display stand — ${scaleConfig.label}. ` +
       `Dimensions: ${scaleConfig.parameters.base_width}×${scaleConfig.parameters.base_width}×${scaleConfig.parameters.height}mm. ` +
@@ -123,16 +130,23 @@ export async function POST(req: NextRequest) {
       `This is a showcase/demo print inspired by the Artemis II mission — not an official NASA model.`;
 
     // ── Create session ──────────────────────────────────────────
+    // sessions table columns: id, user_id, device_id, started_at, ended_at, transcript_summary
     const { data: session, error: sessionError } = await serviceSupabase
       .from("sessions")
-      .insert({ user_id: user.id, problem_text: problemText })
+      .insert({ user_id: user.id })
       .select("id")
       .single();
     if (sessionError || !session) {
-      return NextResponse.json({ error: "Failed to create session" }, { status: 500 });
+      return NextResponse.json(
+        { error: "Failed to create session", detail: sessionError?.message },
+        { status: 500 }
+      );
     }
 
     // ── Create job ──────────────────────────────────────────────
+    // jobs table columns: id, user_id, session_id, title, status, requested_family,
+    //   selected_family, confidence_score, latest_spec_version, latest_run_id,
+    //   created_at, updated_at
     const { data: job, error: jobError } = await serviceSupabase
       .from("jobs")
       .insert({
@@ -140,41 +154,54 @@ export async function POST(req: NextRequest) {
         session_id: session.id,
         status: "draft",
         title: `Artemis II Demo — ${scaleConfig.label}`,
-        description:
-          `Commemorative display stand inspired by the Artemis II mission. ` +
-          `Scale: ${scale}, Material: ${material}, Quality: ${quality}. ` +
-          `Not an official NASA model.`,
+        requested_family: scaleConfig.family,
+        selected_family: scaleConfig.family,
+        confidence_score: 0.92,
       })
       .select("id")
       .single();
     if (jobError || !job) {
-      return NextResponse.json({ error: "Failed to create job" }, { status: 500 });
+      return NextResponse.json(
+        { error: "Failed to create job", detail: jobError?.message },
+        { status: 500 }
+      );
     }
 
     // ── Create part_spec ────────────────────────────────────────
+    // part_specs table columns: id, job_id, version, units, family, material,
+    //   dimensions_json, load_requirements_json, constraints_json,
+    //   printer_constraints_json, assumptions_json, missing_fields_json,
+    //   source_transcript_span_json, created_by, created_at
     const { data: partSpec, error: specError } = await serviceSupabase
       .from("part_specs")
       .insert({
         job_id: job.id,
         family: scaleConfig.family,
         units: "mm",
-        dimensions: scaleConfig.parameters,
-        assumptions: [
+        material,
+        dimensions_json: scaleConfig.parameters,
+        assumptions_json: [
           `Artemis II demo — mapped to ${scaleConfig.family} for parametric generation`,
           `Scale: ${scale}, Material: ${material}, Quality: ${quality}`,
           "Commemorative display stand — not an official NASA model",
         ],
-        missing_fields: [],
-        confidence: 0.92,
-        source: "artemis_demo",
+        missing_fields_json: [],
+        created_by: "ai",
       })
       .select("id")
       .single();
     if (specError || !partSpec) {
-      return NextResponse.json({ error: "Failed to create part spec" }, { status: 500 });
+      return NextResponse.json(
+        { error: "Failed to create part spec", detail: specError?.message },
+        { status: 500 }
+      );
     }
 
     // ── Create CAD run ──────────────────────────────────────────
+    // cad_runs table columns: id, job_id, part_spec_id, concept_variant_id,
+    //   engine, generator_name, generator_version, status, source_code,
+    //   normalized_params_json, validation_report_json, error_text,
+    //   started_at, ended_at
     const { data: cadRun, error: runError } = await serviceSupabase
       .from("cad_runs")
       .insert({
@@ -184,13 +211,16 @@ export async function POST(req: NextRequest) {
         generator_name: scaleConfig.family,
         generator_version: "1.0.0",
         status: "queued",
-        normalized_params_json: {},
+        normalized_params_json: scaleConfig.parameters,
         validation_report_json: {},
       })
       .select()
       .single();
     if (runError || !cadRun) {
-      return NextResponse.json({ error: "Failed to create CAD run" }, { status: 500 });
+      return NextResponse.json(
+        { error: "Failed to create CAD run", detail: runError?.message },
+        { status: 500 }
+      );
     }
 
     // ── Update job status ───────────────────────────────────────
@@ -228,6 +258,9 @@ export async function POST(req: NextRequest) {
     }
 
     // ── Save invention_request audit record ─────────────────────
+    // invention_requests columns: id, user_id, problem_text, family, parameters,
+    //   reasoning, confidence, project_id, job_id, status, rejection_reason,
+    //   created_at, completed_at
     const { data: inventionRecord } = await serviceSupabase
       .from("invention_requests")
       .insert({
@@ -249,12 +282,7 @@ export async function POST(req: NextRequest) {
       gate: "artemis_demo_generation",
       timestamp: new Date().toISOString(),
       elapsed_ms: elapsedMs,
-      inputs: {
-        scale,
-        material,
-        quality,
-        user_id: user.id,
-      },
+      inputs: { scale, material, quality, user_id: user.id },
       interpretation: {
         mode: "artemis_demo",
         family_mapped: scaleConfig.family,
