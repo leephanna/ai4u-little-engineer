@@ -20,6 +20,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createServiceClient } from "@/lib/supabase/service";
+import { shouldBypassLimits } from "@/lib/access-policy";
 import OpenAI from "openai";
 import {
   REQUIRED_DIMENSIONS,
@@ -324,16 +325,20 @@ export async function POST(request: NextRequest) {
       .eq("id", user.id)
       .single();
 
-    const plan = profile?.plan ?? "free";
+     const plan = profile?.plan ?? "free";
     const currentMonth = new Date().toISOString().slice(0, 7);
     const generationsThisMonth =
       profile?.generation_month === currentMonth
         ? (profile?.generations_this_month ?? 0)
         : 0;
-
     const limits: Record<string, number | null> = { free: 3, maker: 50, pro: null };
     const limit = limits[plan] ?? 3;
-    if (limit !== null && generationsThisMonth >= limit) {
+    // Access policy bypass check (Phase 4)
+    const bypass = await shouldBypassLimits(user.email);
+    if (bypass.bypassed) {
+      console.log(`[invent] bypass active — reason: ${bypass.reason} — user: ${user.email}`);
+    }
+    if (!bypass.bypassed && limit !== null && generationsThisMonth >= limit) {
       return NextResponse.json(
         {
           error: `Monthly generation limit reached (${limit} for ${plan} plan). Upgrade to continue.`,

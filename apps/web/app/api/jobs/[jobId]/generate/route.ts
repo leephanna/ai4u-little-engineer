@@ -19,6 +19,7 @@ import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { createClient as createSupabaseClient } from "@supabase/supabase-js";
 import { tasks } from "@trigger.dev/sdk/v3";
 import { checkGenerationAllowed, type PlanId } from "@/lib/stripe/config";
+import { shouldBypassLimits } from "@/lib/access-policy";
 
 interface GenerateBody {
   part_spec_id: string;
@@ -81,7 +82,13 @@ export async function POST(
 
     const entitlement = checkGenerationAllowed(userPlan, generationsThisMonth);
 
-    if (!entitlement.allowed) {
+    // Access policy bypass check (Phase 4)
+    const bypass = await shouldBypassLimits(user.email);
+    if (bypass.bypassed) {
+      console.log(`[generate] bypass active — reason: ${bypass.reason} — user: ${user.email}`);
+    }
+
+    if (!bypass.bypassed && !entitlement.allowed) {
       const appUrl =
         process.env.NEXT_PUBLIC_APP_URL ??
         "https://ai4u-little-engineer-web.vercel.app";
@@ -253,9 +260,14 @@ export async function POST(
       trigger_run_id: triggerRunId,
       status: "queued",
       plan: userPlan,
-      generations_remaining: entitlement.remaining !== null
-        ? entitlement.remaining - 1
-        : null,
+      generations_remaining: bypass.bypassed
+        ? null
+        : entitlement.remaining !== null
+          ? entitlement.remaining - 1
+          : null,
+      // Access policy bypass fields (Phase 4)
+      unlimited: bypass.bypassed,
+      bypass_reason: bypass.reason ?? undefined,
     });
   } catch (err) {
     console.error("Generate trigger error:", err);

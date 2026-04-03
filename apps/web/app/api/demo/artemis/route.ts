@@ -31,6 +31,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createServiceClient } from "@/lib/supabase/service";
+import { shouldBypassLimits } from "@/lib/access-policy";
 
 // ── Scale → parametric dimensions mapping ────────────────────────────────────
 const SCALE_MAP = {
@@ -97,7 +98,13 @@ export async function POST(req: NextRequest) {
 
     const serviceSupabase = createServiceClient();
 
-    // ── Billing check ───────────────────────────────────────────
+    // ── Access policy bypass check (owner / cookie / preview) ───
+    const bypass = await shouldBypassLimits(user.email);
+    if (bypass.bypassed) {
+      console.log(`[artemis] bypass active — reason: ${bypass.reason} — user: ${user.email}`);
+    }
+
+    // ── Billing check (skipped when bypass is active) ───────────
     const { data: profile } = await serviceSupabase
       .from("profiles")
       .select("plan, generations_this_month, generation_month")
@@ -112,7 +119,7 @@ export async function POST(req: NextRequest) {
         : 0;
     const limits: Record<string, number | null> = { free: 3, maker: 50, pro: null };
     const limit = limits[plan] ?? 3;
-    if (limit !== null && generationsThisMonth >= limit) {
+    if (!bypass.bypassed && limit !== null && generationsThisMonth >= limit) {
       return NextResponse.json(
         {
           error: `Monthly generation limit reached (${limit} for ${plan} plan). Upgrade to continue.`,
@@ -314,6 +321,9 @@ export async function POST(req: NextRequest) {
       quality,
       vpl_preview: vplPreview,
       status: "generating",
+      // Access policy bypass fields (Phase 4)
+      unlimited: bypass.bypassed,
+      bypass_reason: bypass.reason ?? undefined,
       daedalus_receipt: daedalusReceipt,
     });
   } catch (err) {

@@ -12,6 +12,7 @@ import { redirect } from "next/navigation";
 import Link from "next/link";
 import { PLANS, type PlanId } from "@/lib/stripe/config";
 import { ManageBillingButton } from "@/components/billing/ManageBillingButton";
+import { shouldBypassLimits } from "@/lib/access-policy";
 
 export const metadata = {
   title: "Account — AI4U Little Engineer",
@@ -58,9 +59,11 @@ export default async function AccountPage() {
       ? (profile?.generations_this_month ?? 0)
       : 0;
   const generationLimit = plan.generations_per_month;
+  const bypass = await shouldBypassLimits(user.email);
+  const effectiveGenerationLimit = bypass.bypassed ? null : generationLimit;
   const usagePct =
-    generationLimit !== null
-      ? Math.min(100, Math.round((generationsThisMonth / generationLimit) * 100))
+    !bypass.bypassed && effectiveGenerationLimit !== null
+      ? Math.min(100, Math.round((generationsThisMonth / effectiveGenerationLimit) * 100))
       : null;
 
   const periodEnd = profile?.current_period_end
@@ -117,11 +120,12 @@ export default async function AccountPage() {
             <div className="flex items-center justify-between text-sm">
               <span className="text-steel-400">Generations this month</span>
               <span className="text-steel-200 font-medium">
-                {generationsThisMonth}
-                {generationLimit !== null ? ` / ${generationLimit}` : " / ∞"}
+                {bypass.bypassed
+                  ? "♾️ Unlimited (owner access)"
+                  : `${generationsThisMonth}${effectiveGenerationLimit !== null ? ` / ${effectiveGenerationLimit}` : " / ∞"}`}
               </span>
             </div>
-            {usagePct !== null && (
+            {!bypass.bypassed && usagePct !== null && (
               <div className="h-2 bg-steel-800 rounded-full overflow-hidden">
                 <div
                   className={`h-full rounded-full transition-all ${

@@ -8,6 +8,7 @@ import { createClient } from "@/lib/supabase/server";
 import { SystemStatusBar } from "@/components/SystemStatusBar";
 import type { Job } from "@/lib/types";
 import { JOB_STATUS_COLORS, JOB_STATUS_LABELS } from "@/lib/types";
+import { shouldBypassLimits } from "@/lib/access-policy";
 
 const FAMILY_EMOJI: Record<string, string> = {
   spacer: "⭕",
@@ -129,6 +130,7 @@ export default async function DashboardPage() {
 
   const plan = (profile?.plan as string) ?? "free";
   const generationsThisMonth = (profile?.generations_this_month as number) ?? 0;
+  const bypass = await shouldBypassLimits(user.email);
 
   return (
     <div className="min-h-screen bg-steel-900">
@@ -220,12 +222,14 @@ export default async function DashboardPage() {
             </span>
           </Link>
           <div className="card flex flex-col items-center gap-2 py-4 text-center">
-            <span className="text-2xl">📊</span>
+            <span className="text-2xl">{bypass.bypassed ? "♾️" : "📊"}</span>
             <span className="text-sm font-medium text-steel-200">
-              {generationsThisMonth} generated
+              {bypass.bypassed ? "Unlimited" : `${generationsThisMonth} generated`}
             </span>
             <span className="text-xs text-steel-500 capitalize">
-              {plan} plan · this month
+              {bypass.bypassed
+                ? `owner access · ${bypass.reason}`
+                : `${plan} plan · this month`}
             </span>
           </div>
         </div>
