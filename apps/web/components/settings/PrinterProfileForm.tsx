@@ -35,6 +35,25 @@ const MATERIAL_DEFAULTS: Record<string, { bed: number; hotend: number }> = {
   Other: { bed: 60,  hotend: 215 },
 };
 
+/** Gap 3 fix: renamed from "My Printer" to "Standard FDM (Default)" */
+const STANDARD_DEFAULTS: PrinterProfile = {
+  name: "Standard FDM (Default)",
+  is_default: true,
+  layer_height_mm: 0.2,
+  nozzle_diameter_mm: 0.4,
+  wall_thickness_mm: 1.2,
+  infill_percent: 20,
+  xy_compensation_mm: 0.0,
+  z_compensation_mm: 0.0,
+  material: "PLA",
+  bed_temp_c: 60,
+  hotend_temp_c: 215,
+  printer_model: "",
+  build_x_mm: null,
+  build_y_mm: null,
+  build_z_mm: null,
+};
+
 interface Props {
   profile: PrinterProfile | null;
   userId: string;
@@ -46,25 +65,7 @@ export function PrinterProfileForm({ profile, userId }: Props) {
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const defaults: PrinterProfile = {
-    name: "My Printer",
-    is_default: true,
-    layer_height_mm: 0.2,
-    nozzle_diameter_mm: 0.4,
-    wall_thickness_mm: 1.2,
-    infill_percent: 20,
-    xy_compensation_mm: 0.0,
-    z_compensation_mm: 0.0,
-    material: "PLA",
-    bed_temp_c: 60,
-    hotend_temp_c: 215,
-    printer_model: "",
-    build_x_mm: null,
-    build_y_mm: null,
-    build_z_mm: null,
-  };
-
-  const [form, setForm] = useState<PrinterProfile>(profile ?? defaults);
+  const [form, setForm] = useState<PrinterProfile>(profile ?? STANDARD_DEFAULTS);
 
   function update<K extends keyof PrinterProfile>(key: K, value: PrinterProfile[K]) {
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -78,6 +79,11 @@ export function PrinterProfileForm({ profile, userId }: Props) {
       bed_temp_c: temps.bed,
       hotend_temp_c: temps.hotend,
     }));
+  }
+
+  /** Gap 3 fix: reset form to standard FDM defaults */
+  function handleUseStandardDefaults() {
+    setForm({ ...STANDARD_DEFAULTS, id: form.id });
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -113,7 +119,7 @@ export function PrinterProfileForm({ profile, userId }: Props) {
           className="input"
           value={form.name}
           onChange={(e) => update("name", e.target.value)}
-          placeholder="e.g. Bambu Lab P1S"
+          placeholder="e.g. Standard FDM (Default)"
           required
         />
       </div>
@@ -289,6 +295,15 @@ export function PrinterProfileForm({ profile, userId }: Props) {
           {error}
         </div>
       )}
+
+      {/* Gap 3 fix: "Use Standard Defaults" button */}
+      <button
+        type="button"
+        onClick={handleUseStandardDefaults}
+        className="text-xs text-steel-400 hover:text-brand-300 transition-colors underline underline-offset-2"
+      >
+        Use Standard Defaults (0.4mm nozzle · 0.2mm layers · PLA · 20% infill)
+      </button>
 
       <button
         type="submit"

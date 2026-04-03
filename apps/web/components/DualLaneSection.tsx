@@ -4,11 +4,12 @@
  * DualLaneSection
  *
  * Renders two equally prominent lanes on the homepage:
- *   Lane A — Build for the Shop (precision / machinist use)
- *   Lane B — Build for Fun (creative / hobby / toy use)
+ *   Lane A — Build for the Shop (precision / machinist use) → /invent
+ *   Lane B — Build for Fun (creative / hobby / toy use)    → /gallery
  *
- * Both lanes connect to the same universal input composer (/invent).
- * The section appears immediately below the hero, above the fold on desktop.
+ * Gap 4 fix: Fun lane cards now route to /gallery (click-to-make gallery)
+ * instead of /invent. The Artemis II showcase card routes to /demo/artemis.
+ * Lane A (Shop) cards continue to route to /invent with the query pre-filled.
  */
 import Link from "next/link";
 
@@ -21,13 +22,14 @@ const SHOP_EXAMPLES = [
   { icon: "📦", label: "Wall mount", hint: "Secure anything to a wall" },
 ];
 
-const FUN_EXAMPLES = [
-  { icon: "🏹", label: "Toothpick launcher", hint: "Desk-sized fun" },
-  { icon: "⚔️", label: "Mini catapult", hint: "Classic tabletop toy" },
-  { icon: "🚀", label: "Rocket + launch pad", hint: "Artemis II showcase" },
-  { icon: "🪆", label: "Desk toy / fidget", hint: "Custom collectible" },
-  { icon: "🪧", label: "Custom sign / plaque", hint: "Name, logo, or message" },
-  { icon: "🎁", label: "Gift replica", hint: "From a photo or sketch" },
+/** Gap 4 fix: Fun lane cards carry their own href */
+const FUN_EXAMPLES: Array<{ icon: string; label: string; hint: string; href: string }> = [
+  { icon: "🏹", label: "Toothpick launcher", hint: "Desk-sized fun",         href: "/gallery?category=fun" },
+  { icon: "⚔️", label: "Mini catapult",       hint: "Classic tabletop toy",  href: "/gallery?category=fun" },
+  { icon: "🚀", label: "Rocket + launch pad", hint: "Artemis II showcase",   href: "/demo/artemis" },
+  { icon: "🪆", label: "Desk toy / fidget",   hint: "Custom collectible",    href: "/gallery?category=fun" },
+  { icon: "🪧", label: "Custom sign / plaque",hint: "Name, logo, or message",href: "/gallery?category=gift" },
+  { icon: "🎁", label: "Gift replica",         hint: "From a photo or sketch",href: "/gallery?category=gift" },
 ];
 
 export default function DualLaneSection() {
@@ -70,7 +72,7 @@ export default function DualLaneSection() {
             </div>
           </div>
 
-          {/* Examples */}
+          {/* Examples — route to /invent with query pre-filled */}
           <div className="p-4 grid grid-cols-2 gap-2">
             {SHOP_EXAMPLES.map((ex) => (
               <Link
@@ -101,7 +103,7 @@ export default function DualLaneSection() {
           </div>
         </div>
 
-        {/* Lane B — Fun */}
+        {/* Lane B — Fun (Gap 4 fix: routes to /gallery) */}
         <div className="rounded-2xl border border-purple-900/60 bg-gradient-to-br from-steel-900 to-purple-950/20 overflow-hidden">
           {/* Lane header */}
           <div className="px-5 py-4 border-b border-purple-900/50 flex items-center gap-3">
@@ -117,12 +119,12 @@ export default function DualLaneSection() {
             </div>
           </div>
 
-          {/* Examples */}
+          {/* Examples — each card has its own dedicated route */}
           <div className="p-4 grid grid-cols-2 gap-2">
             {FUN_EXAMPLES.map((ex) => (
               <Link
                 key={ex.label}
-                href={`/invent?q=${encodeURIComponent(ex.label)}`}
+                href={ex.href}
                 className="flex items-start gap-2 p-2.5 rounded-xl bg-steel-800/60 border border-purple-900/40 hover:border-purple-600 hover:bg-purple-900/20 transition-all group"
               >
                 <span className="text-base flex-shrink-0">{ex.icon}</span>
@@ -136,14 +138,14 @@ export default function DualLaneSection() {
             ))}
           </div>
 
-          {/* CTA */}
+          {/* CTA — routes to gallery for Fun lane */}
           <div className="px-4 pb-4">
             <Link
-              href="/invent"
+              href="/gallery"
               className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl bg-purple-700 hover:bg-purple-600 text-white font-semibold text-sm transition-all"
             >
               <span>🎉</span>
-              <span>Start with an idea →</span>
+              <span>Browse the gallery →</span>
             </Link>
           </div>
         </div>

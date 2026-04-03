@@ -62,6 +62,15 @@ export async function POST(
   return NextResponse.json({ shared: true, share_token: token });
 }
 
+// PUT /api/jobs/[jobId]/share → same as POST (Gap 5 fix: SharePanel uses PUT)
+export async function PUT(
+  req: NextRequest,
+  { params }: { params: Promise<{ jobId: string }> }
+) {
+  // Delegate to the POST handler logic
+  return POST(req, { params });
+}
+
 // GET /api/jobs/[jobId]/share → return current share status
 export async function GET(
   _req: NextRequest,

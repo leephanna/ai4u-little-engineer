@@ -52,8 +52,9 @@ export function SharePanel({
   async function toggleShare() {
     setLoading(true);
     try {
+      // Gap 5 fix: use PUT (POST is also accepted; PUT is the idiomatic toggle verb)
       const res = await fetch(`/api/jobs/${jobId}/share`, {
-        method: "POST",
+        method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: shared ? "disable" : "enable" }),
       });

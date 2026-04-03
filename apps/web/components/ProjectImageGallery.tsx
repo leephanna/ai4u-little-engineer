@@ -7,6 +7,10 @@
  * Shows a "render" (studio shot) and a "context" (real-world usage) image.
  * Includes a "Generate Images" button that calls the image generation API.
  *
+ * Gap 2 fix: when the API returns 404 "Project not found" (job not yet saved
+ * to Library), show a friendly "Save to Library first" prompt instead of a
+ * generic error message.
+ *
  * Usage:
  *   <ProjectImageGallery projectId={project.id} images={existingImages} isOwner={true} />
  */
@@ -49,6 +53,7 @@ export function ProjectImageGallery({
   const [images, setImages] = useState<ProjectImage[]>(initialImages);
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [notSavedAsProject, setNotSavedAsProject] = useState(false);
   const [activeImage, setActiveImage] = useState<ProjectImage | null>(
     initialImages[0] ?? null
   );
@@ -60,11 +65,20 @@ export function ProjectImageGallery({
   async function generateImages() {
     setGenerating(true);
     setError(null);
+    setNotSavedAsProject(false);
     try {
       const res = await fetch(`/api/projects/${projectId}/images`, {
         method: "POST",
       });
       const data = await res.json();
+      // Gap 2: job not yet saved as a project
+      if (
+        res.status === 404 &&
+        (data.error === "Project not found" || (data.error as string)?.includes("not found"))
+      ) {
+        setNotSavedAsProject(true);
+        return;
+      }
       if (!res.ok) throw new Error(data.error ?? "Generation failed");
       setImages(data.images ?? []);
       if (data.images?.length > 0) {
@@ -78,6 +92,25 @@ export function ProjectImageGallery({
   }
 
   if (!hasImages && !isOwner) return null;
+
+  // Job not yet saved as a project — show a friendly prompt
+  if (notSavedAsProject) {
+    return (
+      <div
+        className={`rounded-xl bg-steel-800 border border-amber-700/50 p-5 flex flex-col items-center gap-3 text-center ${className}`}
+      >
+        <div className="text-3xl opacity-60">📁</div>
+        <p className="text-sm text-amber-300 font-medium">Save to Library first</p>
+        <p className="text-xs text-steel-400 max-w-xs">
+          AI Visuals are linked to saved projects. Save this design to your Library,
+          then return here to generate concept images.
+        </p>
+        <a href="/library" className="btn-secondary text-xs px-4 py-1.5">
+          Go to Library
+        </a>
+      </div>
+    );
+  }
 
   return (
     <div className={`space-y-3 ${className}`}>
