@@ -29,21 +29,21 @@ import { createServiceClient } from "@/lib/supabase/service";
 const SCALE_MAP = {
   small: {
     family: "standoff_block" as const,
-    parameters: { length: 80, width: 80, height: 120, hole_diameter: 0 },
+    parameters: { base_width: 80, height: 120, hole_diameter: 0 },
     label: "Small Commemorative Display Stand",
     time: "~2.5h",
     filament: "~45g",
   },
   medium: {
     family: "standoff_block" as const,
-    parameters: { length: 130, width: 130, height: 200, hole_diameter: 0 },
+    parameters: { base_width: 130, height: 200, hole_diameter: 0 },
     label: "Medium Commemorative Display Stand",
     time: "~5h",
     filament: "~90g",
   },
   display: {
     family: "standoff_block" as const,
-    parameters: { length: 200, width: 200, height: 320, hole_diameter: 0 },
+    parameters: { base_width: 200, height: 320, hole_diameter: 0 },
     label: "Display Commemorative Stand",
     time: "~10h",
     filament: "~180g",
@@ -118,7 +118,7 @@ export async function POST(req: NextRequest) {
     // ── Build problem text ──────────────────────────────────────
     const problemText =
       `Artemis II commemorative display stand — ${scaleConfig.label}. ` +
-      `Dimensions: ${scaleConfig.parameters.length}×${scaleConfig.parameters.width}×${scaleConfig.parameters.height}mm. ` +
+      `Dimensions: ${scaleConfig.parameters.base_width}×${scaleConfig.parameters.base_width}×${scaleConfig.parameters.height}mm. ` +
       `Material: ${material}. Quality: ${quality}. ` +
       `This is a showcase/demo print inspired by the Artemis II mission — not an official NASA model.`;
 
