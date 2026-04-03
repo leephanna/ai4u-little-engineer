@@ -138,43 +138,79 @@ export async function POST(request: NextRequest) {
     }
 
     // Parse request body
+    // Accepts two payload shapes:
+    //   1. Old shape: { problem: string }  — from InventionForm / direct API calls
+    //   2. New shape: { text: string, intake_family_candidate?: string,
+    //                   intake_dimensions?: Record<string, number> }
+    //                — from UniversalCreatorFlow after interpretation
     const body = await request.json();
-    const { problem } = body as { problem?: string };
+    const {
+      problem,
+      text,
+      intake_family_candidate,
+      intake_dimensions,
+    } = body as {
+      problem?: string;
+      text?: string;
+      intake_family_candidate?: string;
+      intake_dimensions?: Record<string, number>;
+    };
 
-    if (!problem || typeof problem !== "string" || problem.trim().length < 5) {
+    // Normalise: accept either `problem` or `text` as the description
+    const rawDescription = problem ?? text;
+    if (!rawDescription || typeof rawDescription !== "string" || rawDescription.trim().length < 5) {
       return NextResponse.json(
         { error: "Missing or too-short problem description (min 5 characters)" },
         { status: 400 }
       );
     }
 
-    const problemText = problem.trim().slice(0, 1000); // cap at 1000 chars
+    const problemText = rawDescription.trim().slice(0, 1000); // cap at 1000 chars
 
-    // ── Step 1: LLM → structured invention ─────────────────────
+    // ── Step 1: LLM → structured invention (or fast-path) ───────
+    // Fast-path: if the caller already resolved the family + dimensions (e.g. from
+    // the UniversalCreatorFlow interpretation engine), skip the LLM call entirely.
+    const hasFastPath =
+      intake_family_candidate &&
+      MVP_PART_FAMILIES.includes(intake_family_candidate as MvpPartFamily) &&
+      intake_dimensions &&
+      Object.keys(intake_dimensions).length > 0;
+
     let inventionResult: InventionResult;
-    try {
-      const completion = await openai.chat.completions.create({
-        model: "gpt-4.1-mini",
-        messages: [
-          { role: "system", content: INVENTION_SYSTEM_PROMPT },
-          {
-            role: "user",
-            content: `Problem: "${problemText}"\n\nDesign a 3D-printable solution.`,
-          },
-        ],
-        response_format: { type: "json_object" },
-        temperature: 0.3,
-        max_tokens: 600,
-      });
+    if (hasFastPath) {
+      // Build InventionResult directly from the pre-resolved intake data
+      inventionResult = {
+        family: intake_family_candidate as string,
+        parameters: intake_dimensions as Record<string, number>,
+        reasoning: `Pre-interpreted by UniversalCreatorFlow: ${problemText.slice(0, 200)}`,
+        confidence: 0.9,
+        rejection_reason: null,
+      };
+    } else {
+      try {
+        const completion = await openai.chat.completions.create({
+          model: "gpt-4.1-mini",
+          messages: [
+            { role: "system", content: INVENTION_SYSTEM_PROMPT },
+            {
+              role: "user",
+              content: `Problem: "${problemText}"\n\nDesign a 3D-printable solution.`,
+            },
+          ],
+          response_format: { type: "json_object" },
+          temperature: 0.3,
+          max_tokens: 600,
+        });
 
-      const raw = completion.choices[0]?.message?.content ?? "{}";
-      inventionResult = JSON.parse(raw) as InventionResult;
-    } catch (err) {
-      console.error("LLM invention error:", err);
-      return NextResponse.json(
-        { error: "Invention engine failed. Please try again." },
-        { status: 500 }
-      );
+        const raw = completion.choices[0]?.message?.content ?? "{}";
+        inventionResult = JSON.parse(raw) as InventionResult;
+      } catch (err) {
+        console.error("LLM invention error:", err);
+        return NextResponse.json(
+          { error: "Invention engine failed. Please try again." },
+          { status: 500 }
+        );
+      }
     }
 
     // ── Step 2: Validate and reject unsafe designs ──────────────

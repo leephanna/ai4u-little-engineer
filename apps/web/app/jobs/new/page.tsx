@@ -1,29 +1,27 @@
 "use client";
 
-import { useState, useCallback } from "react";
-import { useRouter } from "next/navigation";
-import { VoiceSession } from "@/components/voice/VoiceSession";
+/**
+ * /jobs/new
+ *
+ * Authenticated creation page.
+ * Previously rendered VoiceSession (voice-only mic UI).
+ * Now renders UniversalCreatorFlow — text + voice + file upload.
+ *
+ * Fix: Failure 2 — /jobs/new showed old voice-only UI.
+ * Root cause: VoiceSession was never replaced after UniversalCreatorFlow was built.
+ *
+ * NOTE: VoiceSession.tsx is NOT deleted — other code may import it.
+ * This page simply stops using it.
+ */
 
-export default function NewJobPage() {
+import { Suspense } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import UniversalCreatorFlow from "@/components/intake/UniversalCreatorFlow";
+
+function NewJobContent() {
   const router = useRouter();
-  const [jobId, setJobId] = useState<string | undefined>(undefined);
-  const [specReady, setSpecReady] = useState(false);
-
-  const handleJobCreated = useCallback((newJobId: string) => {
-    setJobId(newJobId);
-  }, []);
-
-  const handleSpecReady = useCallback(
-    (_spec: Record<string, unknown>) => {
-      setSpecReady(true);
-      if (jobId) {
-        setTimeout(() => {
-          router.push(`/jobs/${jobId}`);
-        }, 1500);
-      }
-    },
-    [jobId, router]
-  );
+  const searchParams = useSearchParams();
+  const initialPrompt = searchParams.get("prompt") ?? searchParams.get("q") ?? undefined;
 
   return (
     <div className="min-h-screen bg-steel-900 flex flex-col">
@@ -39,28 +37,35 @@ export default function NewJobPage() {
           </svg>
         </button>
         <div>
-          <h1 className="font-semibold text-steel-100">New Part Request</h1>
-          {jobId && (
-            <p className="text-xs text-steel-500">Job {jobId.slice(0, 8)}…</p>
-          )}
+          <h1 className="font-semibold text-steel-100">Create a Part</h1>
+          <p className="text-xs text-steel-500">Type it, upload it, or say it</p>
         </div>
-        {specReady && (
-          <div className="ml-auto flex items-center gap-2 text-green-400 text-sm">
-            <span className="w-2 h-2 bg-green-400 rounded-full" />
-            Spec ready
-          </div>
-        )}
       </header>
 
-      {/* Voice session fills remaining height */}
-      <div className="flex-1 min-h-0">
-        {/* sessionId is now managed server-side inside VoiceSession */}
-        <VoiceSession
-          jobId={jobId}
-          onJobCreated={handleJobCreated}
-          onSpecReady={handleSpecReady}
+      {/* Universal creator flow fills remaining height */}
+      <div className="flex-1 min-h-0 overflow-y-auto">
+        <UniversalCreatorFlow
+          examplePrompts={
+            initialPrompt
+              ? [initialPrompt]
+              : undefined
+          }
         />
       </div>
     </div>
+  );
+}
+
+export default function NewJobPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="min-h-screen bg-steel-900 flex items-center justify-center">
+          <div className="w-6 h-6 border-2 border-brand-400 border-t-transparent rounded-full animate-spin" />
+        </div>
+      }
+    >
+      <NewJobContent />
+    </Suspense>
   );
 }

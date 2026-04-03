@@ -22,8 +22,9 @@
  *   - Lets the user click GO to trigger generation
  */
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
+import { createClient } from "@/lib/supabase/client";
 
 type Material = "PLA" | "PETG" | "ABS";
 type Quality = "draft" | "standard" | "fine";
@@ -91,18 +92,28 @@ export default function ArtemisIIDemoCard() {
   const [phase, setPhase] = useState<"config" | "preview" | "generating" | "done">("config");
   const [jobId, setJobId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    const supabase = createClient();
+    supabase.auth.getUser().then(({ data: { user } }) => {
+      setIsAuthenticated(!!user);
+    });
+  }, []);
 
   const scaleParams = SCALE_PARAMS[config.scale];
   const vpl = VPL_SCORES[config.quality];
 
   const handleGo = async () => {
+    // Belt-and-suspenders auth check before calling the API
+    if (!isAuthenticated) {
+      setError("sign_in_required");
+      return;
+    }
     setPhase("generating");
     setError(null);
 
     try {
-      // Use the dedicated Artemis demo route which correctly maps to a valid
-      // parametric family (standoff_block). The /api/invent route rejects
-      // concept models with confidence < 0.5 — this is the correct fix.
       const res = await fetch("/api/demo/artemis", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -114,13 +125,18 @@ export default function ArtemisIIDemoCard() {
       });
 
       if (!res.ok) {
-        const data = await res.json();
+        const data = await res.json().catch(() => ({}));
+        if (res.status === 401) {
+          setError("sign_in_required");
+          setPhase("config");
+          return;
+        }
         if (data.upgrade_required) {
           setError("Monthly limit reached. Please upgrade your plan.");
           setPhase("preview");
           return;
         }
-        throw new Error("Generation failed");
+        throw new Error(data.error ?? "Generation failed");
       }
 
       const data = await res.json();
@@ -259,11 +275,29 @@ export default function ArtemisIIDemoCard() {
             <span className="text-xs text-brand-400 font-medium">{vpl.tier}</span>
           </div>
 
-          {error && (
+          {error === "sign_in_required" ? (
+            <div className="text-sm text-brand-300 bg-brand-900/30 border border-brand-700 rounded-lg px-4 py-3 text-center">
+              <p className="font-semibold mb-1">Sign in to generate this model</p>
+              <p className="text-xs text-steel-400 mb-3">Create a free account to generate and download your Artemis II model.</p>
+              <a
+                href="/signup?redirect=/demo/artemis"
+                className="inline-block px-4 py-2 bg-brand-600 hover:bg-brand-500 text-white text-xs font-bold rounded-lg transition-colors"
+              >
+                Sign Up Free →
+              </a>
+              <span className="mx-2 text-steel-600 text-xs">or</span>
+              <a
+                href="/login?redirect=/demo/artemis"
+                className="inline-block px-4 py-2 bg-steel-700 hover:bg-steel-600 text-steel-200 text-xs font-bold rounded-lg transition-colors"
+              >
+                Log In
+              </a>
+            </div>
+          ) : error ? (
             <div className="text-xs text-red-400 bg-red-900/20 border border-red-800 rounded-lg px-3 py-2">
               {error}
             </div>
-          )}
+          ) : null}
 
           {/* GO button */}
           <button
