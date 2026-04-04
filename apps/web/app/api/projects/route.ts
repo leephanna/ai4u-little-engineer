@@ -8,7 +8,10 @@
  *   - title: string    — project title
  *   - description: string (optional)
  *
- * Phase 6: Searchable project library
+ * Visual-proof pass fixes:
+ *   1. Allow "completed" status (Artemis II jobs land here, not "approved")
+ *   2. Set BOTH creator_id AND created_by on insert so the images API
+ *      ownership check (which uses creator_id) works correctly
  */
 
 import { NextRequest, NextResponse } from "next/server";
@@ -43,12 +46,18 @@ export async function POST(req: NextRequest) {
     .single();
 
   if (!job) return NextResponse.json({ error: "Job not found" }, { status: 404 });
-  if (job.status !== "approved" && job.status !== "printed") {
-    return NextResponse.json({ error: "Only approved or printed jobs can be saved" }, { status: 400 });
+
+  // Allow approved, printed, AND completed (Artemis II jobs land in "completed")
+  const savableStatuses = ["approved", "printed", "completed"];
+  if (!savableStatuses.includes(job.status as string)) {
+    return NextResponse.json(
+      { error: `Only ${savableStatuses.join(", ")} jobs can be saved` },
+      { status: 400 }
+    );
   }
 
-  // Load the latest artifact for STL/STEP URLs
-  const { data: artifact } = await supabase
+  // Load the latest successful CAD run for STL/STEP URLs
+  const { data: cadRun } = await supabase
     .from("cad_runs")
     .select("stl_url, step_url")
     .eq("job_id", job_id)
@@ -59,28 +68,31 @@ export async function POST(req: NextRequest) {
 
   const serviceClient = createServiceClient();
 
-  // Check if already saved
+  // Check if already saved (check both creator_id and created_by for safety)
   const { data: existing } = await serviceClient
     .from("projects")
     .select("id")
-    .eq("created_by", user.id)
+    .or(`created_by.eq.${user.id},creator_id.eq.${user.id}`)
     .eq("title", title.trim())
-    .single();
+    .limit(1)
+    .maybeSingle();
 
   if (existing) {
     return NextResponse.json({ id: existing.id, saved: true, already_existed: true });
   }
 
+  // Insert project — set BOTH creator_id and created_by so all ownership checks pass
   const { data: project, error } = await serviceClient
     .from("projects")
     .insert({
       title: title.trim(),
       description: description?.trim() ?? null,
-      family: job.selected_family as string,
+      family: (job.selected_family as string) ?? "mechanical_part",
       parameters: (job.final_spec as Record<string, unknown>) ?? {},
-      stl_url: (artifact?.stl_url as string | null) ?? null,
-      step_url: (artifact?.step_url as string | null) ?? null,
+      stl_url: (cadRun?.stl_url as string | null) ?? null,
+      step_url: (cadRun?.step_url as string | null) ?? null,
       created_by: user.id,
+      creator_id: user.id,   // ← also set creator_id (migration 006 column)
       is_system: false,
     })
     .select("id")

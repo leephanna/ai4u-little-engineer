@@ -1,45 +1,60 @@
 "use client";
-
+/**
+ * VirtualPrintLabPanel
+ *
+ * Displays VPL analysis results for a completed CAD run.
+ *
+ * Field-name alignment (visual-proof pass):
+ *   - GeometryResult: triangle_count → face_count | null (API uses face_count)
+ *   - SlicerResult: print_time_minutes → derived from estimated_print_time_seconds
+ *   - All nullable numeric fields guarded before .toFixed() / .toLocaleString()
+ */
 import { useEffect, useState } from "react";
 
 interface GeometryResult {
   is_watertight: boolean;
   is_valid: boolean;
-  volume_cm3: number;
-  surface_area_cm2: number;
-  bounding_box_mm: { x: number; y: number; z: number };
-  triangle_count: number;
+  volume_cm3: number | null;
+  surface_area_cm2: number | null;
+  bounding_box_mm: { x: number; y: number; z: number } | null;
+  /** API may return face_count or triangle_count depending on source */
+  triangle_count?: number | null;
+  face_count?: number | null;
+  vertex_count?: number | null;
   issues: string[];
-  score: number;
+  score?: number | null;
 }
 
 interface SlicerResult {
   success: boolean;
-  print_time_minutes: number | null;
-  filament_mm: number | null;
-  filament_cm3: number | null;
-  layer_count: number | null;
+  /** Legacy field — present when VPL data comes from virtual_print_tests */
+  print_time_minutes?: number | null;
+  /** Synthesised field — present when VPL is derived from cad_run */
+  estimated_print_time_seconds?: number | null;
+  filament_mm?: number | null;
+  filament_cm3?: number | null;
+  layer_count?: number | null;
   issues: string[];
-  score: number;
+  score?: number | null;
 }
 
 interface HeuristicResult {
-  max_overhang_angle_deg: number;
+  max_overhang_angle_deg: number | null;
   needs_supports: boolean;
-  estimated_support_volume_pct: number;
+  estimated_support_volume_pct?: number | null;
   wall_thickness_ok: boolean;
-  min_wall_thickness_mm: number;
-  build_plate_adhesion: string;
+  min_wall_thickness_mm: number | null;
+  build_plate_adhesion: string | null;
   issues: string[];
-  recommendations: string[];
-  score: number;
+  recommendations?: string[];
+  score?: number | null;
 }
 
 interface ScoreBreakdown {
   geometry: number;
   slicer: number;
   heuristics: number;
-  total: number;
+  total?: number | null;
 }
 
 interface VPLResult {
@@ -53,7 +68,8 @@ interface VPLResult {
   score_breakdown: ScoreBreakdown;
   all_issues: string[];
   all_recommendations: string[];
-  elapsed_seconds: number;
+  elapsed_seconds?: number | null;
+  source?: string;
 }
 
 interface VirtualPrintLabPanelProps {
@@ -72,6 +88,7 @@ const GRADE_COLORS: Record<string, string> = {
 const RISK_COLORS: Record<string, string> = {
   low: "text-green-700",
   medium: "text-yellow-700",
+  moderate: "text-yellow-700",
   high: "text-orange-700",
   critical: "text-red-700",
 };
@@ -92,19 +109,52 @@ function ScoreBar({ score, max, label }: { score: number; max: number; label: st
   );
 }
 
+/** Derive print time in minutes from either legacy or synthesised field */
+function getPrintTimeMinutes(slicer: SlicerResult): number | null {
+  if (slicer.print_time_minutes != null) return slicer.print_time_minutes;
+  if (slicer.estimated_print_time_seconds != null) return slicer.estimated_print_time_seconds / 60;
+  return null;
+}
+
+/** Format print time for display */
+function formatPrintTime(minutes: number): string {
+  if (minutes < 60) return `${Math.round(minutes)} min`;
+  const h = Math.floor(minutes / 60);
+  const m = Math.round(minutes % 60);
+  return m > 0 ? `${h}h ${m}m` : `${h}h`;
+}
+
+/** Get triangle/face count from geometry result (field name varies by source) */
+function getTriangleCount(geo: GeometryResult): number | null {
+  return geo.triangle_count ?? geo.face_count ?? null;
+}
+
 export function VirtualPrintLabPanel({ jobId, cadRunId }: VirtualPrintLabPanelProps) {
   const [vplData, setVplData] = useState<VPLResult | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [expanded, setExpanded] = useState(false);
+  const [retryCount, setRetryCount] = useState(0);
 
   useEffect(() => {
+    let cancelled = false;
+    let retries = 0;
+    const MAX_RETRIES = 8; // ~2 min total polling
+
     async function fetchVPL() {
       try {
         const res = await fetch(`/api/jobs/${jobId}/vpl`);
+        if (cancelled) return;
+
         if (res.status === 404) {
-          // VPL not yet run — check again in 15s
-          setTimeout(fetchVPL, 15_000);
+          if (retries < MAX_RETRIES) {
+            retries++;
+            setRetryCount(retries);
+            setTimeout(fetchVPL, 15_000);
+          } else {
+            // Give up after MAX_RETRIES
+            setLoading(false);
+          }
           return;
         }
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -113,15 +163,23 @@ export function VirtualPrintLabPanel({ jobId, cadRunId }: VirtualPrintLabPanelPr
           setVplData(data.vpl);
           setLoading(false);
         } else {
-          // Still processing
-          setTimeout(fetchVPL, 10_000);
+          if (retries < MAX_RETRIES) {
+            retries++;
+            setRetryCount(retries);
+            setTimeout(fetchVPL, 10_000);
+          } else {
+            setLoading(false);
+          }
         }
       } catch (err) {
-        setError(String(err));
-        setLoading(false);
+        if (!cancelled) {
+          setError(String(err));
+          setLoading(false);
+        }
       }
     }
     void fetchVPL();
+    return () => { cancelled = true; };
   }, [jobId, cadRunId]);
 
   if (loading) {
@@ -131,7 +189,11 @@ export function VirtualPrintLabPanel({ jobId, cadRunId }: VirtualPrintLabPanelPr
           <div className="h-8 w-8 rounded-full border-2 border-blue-500 border-t-transparent animate-spin" />
           <div>
             <p className="font-medium text-gray-700">Virtual Print Lab</p>
-            <p className="text-sm text-gray-500">Running geometry validation and slicer simulation…</p>
+            <p className="text-sm text-gray-500">
+              {retryCount > 0
+                ? `Running geometry validation… (check ${retryCount})`
+                : "Running geometry validation and slicer simulation…"}
+            </p>
           </div>
         </div>
       </div>
@@ -151,6 +213,8 @@ export function VirtualPrintLabPanel({ jobId, cadRunId }: VirtualPrintLabPanelPr
   const geo = vplData.geometry_result;
   const slicer = vplData.slicer_result;
   const heuristic = vplData.heuristic_result;
+  const printTimeMinutes = getPrintTimeMinutes(slicer);
+  const triangleCount = getTriangleCount(geo);
 
   return (
     <div className="rounded-xl border border-gray-200 bg-white overflow-hidden">
@@ -190,9 +254,7 @@ export function VirtualPrintLabPanel({ jobId, cadRunId }: VirtualPrintLabPanelPr
         </div>
         <div className="p-3 text-center">
           <p className="text-sm font-semibold text-gray-700">
-            {slicer.print_time_minutes != null
-              ? `${Math.floor(slicer.print_time_minutes / 60)}h ${Math.round(slicer.print_time_minutes % 60)}m`
-              : "—"}
+            {printTimeMinutes != null ? formatPrintTime(printTimeMinutes) : "—"}
           </p>
           <p className="text-xs text-gray-500 mt-0.5">Est. Print Time</p>
         </div>
@@ -251,11 +313,17 @@ export function VirtualPrintLabPanel({ jobId, cadRunId }: VirtualPrintLabPanelPr
               <p className="font-semibold text-gray-700">Geometry</p>
               <p className="text-gray-600">Watertight: {geo.is_watertight ? "✓" : "✗"}</p>
               <p className="text-gray-600">Valid: {geo.is_valid ? "✓" : "✗"}</p>
-              <p className="text-gray-600">Volume: {geo.volume_cm3.toFixed(2)} cm³</p>
-              <p className="text-gray-600">Triangles: {geo.triangle_count.toLocaleString()}</p>
-              <p className="text-gray-600">
-                Bounds: {geo.bounding_box_mm.x.toFixed(1)} × {geo.bounding_box_mm.y.toFixed(1)} × {geo.bounding_box_mm.z.toFixed(1)} mm
-              </p>
+              {geo.volume_cm3 != null && (
+                <p className="text-gray-600">Volume: {geo.volume_cm3.toFixed(2)} cm³</p>
+              )}
+              {triangleCount != null && (
+                <p className="text-gray-600">Triangles: {triangleCount.toLocaleString()}</p>
+              )}
+              {geo.bounding_box_mm != null && (
+                <p className="text-gray-600">
+                  Bounds: {geo.bounding_box_mm.x.toFixed(1)} × {geo.bounding_box_mm.y.toFixed(1)} × {geo.bounding_box_mm.z.toFixed(1)} mm
+                </p>
+              )}
             </div>
             {/* Slicer */}
             <div className="space-y-1">
@@ -267,15 +335,24 @@ export function VirtualPrintLabPanel({ jobId, cadRunId }: VirtualPrintLabPanelPr
               {slicer.layer_count != null && (
                 <p className="text-gray-600">Layers: {slicer.layer_count.toLocaleString()}</p>
               )}
+              {printTimeMinutes != null && (
+                <p className="text-gray-600">Print time: {formatPrintTime(printTimeMinutes)}</p>
+              )}
             </div>
             {/* Heuristics */}
             <div className="space-y-1">
               <p className="font-semibold text-gray-700">Heuristics</p>
-              <p className="text-gray-600">Overhang: {heuristic.max_overhang_angle_deg.toFixed(0)}°</p>
+              {heuristic.max_overhang_angle_deg != null && (
+                <p className="text-gray-600">Overhang: {heuristic.max_overhang_angle_deg.toFixed(0)}°</p>
+              )}
               <p className="text-gray-600">Supports: {heuristic.needs_supports ? "Required" : "Not needed"}</p>
               <p className="text-gray-600">Wall OK: {heuristic.wall_thickness_ok ? "✓" : "✗"}</p>
-              <p className="text-gray-600">Min wall: {heuristic.min_wall_thickness_mm.toFixed(1)} mm</p>
-              <p className="text-gray-600">Adhesion: {heuristic.build_plate_adhesion}</p>
+              {heuristic.min_wall_thickness_mm != null && (
+                <p className="text-gray-600">Min wall: {heuristic.min_wall_thickness_mm.toFixed(1)} mm</p>
+              )}
+              {heuristic.build_plate_adhesion && (
+                <p className="text-gray-600">Adhesion: {heuristic.build_plate_adhesion}</p>
+              )}
             </div>
           </div>
         )}

@@ -46,7 +46,9 @@ export function PrintEstimatePanel({
   const [saved, setSaved] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
 
-  const canSave = status === "approved" || status === "printed";
+  // Allow saving for approved, printed, AND completed
+  // (Artemis II jobs land in "completed" status, not "approved")
+  const canSave = ["approved", "printed", "completed"].includes(status);
 
   async function handleSave() {
     setSaving(true);

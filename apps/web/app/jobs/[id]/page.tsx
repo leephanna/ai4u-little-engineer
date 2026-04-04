@@ -19,7 +19,7 @@ import { PrintEstimatePanel } from "@/components/jobs/PrintEstimatePanel";
 import { FeedbackUploadWidget } from "@/components/jobs/FeedbackUploadWidget";
 import { VirtualPrintLabPanel } from "@/components/jobs/VirtualPrintLabPanel";
 import { BrandSignatureBlock } from "@/components/BrandSignatureBlock";
-import { ProjectImageGallery } from "@/components/ProjectImageGallery";
+import { JobPreviewPanel } from "@/components/jobs/JobPreviewPanel";
 import { InventionProtectionPanel } from "@/components/jobs/InventionProtectionPanel";
 
 interface PageProps {
@@ -117,16 +117,16 @@ export default async function JobDetailPage({ params }: PageProps) {
 
       <main className="max-w-3xl mx-auto px-4 py-6 space-y-6">
 
-        {/* AI-Generated Visuals */}
+        {/* 3D Preview — shown as soon as a successful run exists */}
         {latestRun?.status === "success" && (
           <section>
             <h2 className="text-sm font-medium text-steel-400 uppercase tracking-wide mb-3">
-              AI Visuals
+              Preview
             </h2>
-            <ProjectImageGallery
-              projectId={id}
-              images={[]}
-              isOwner={true}
+            <JobPreviewPanel
+              artifacts={artifacts}
+              spec={latestSpec}
+              jobTitle={job.title}
             />
           </section>
         )}
@@ -334,7 +334,9 @@ export default async function JobDetailPage({ params }: PageProps) {
               <dd className="text-steel-300 font-mono text-xs">{id.slice(0, 8)}…</dd>
               <dt className="text-steel-500">Created</dt>
               <dd className="text-steel-300">
-                {new Date(job.created_at).toLocaleString()}
+                {job.created_at
+                  ? new Date(job.created_at).toLocaleString()
+                  : "—"}
               </dd>
               <dt className="text-steel-500">Spec version</dt>
               <dd className="text-steel-300">{job.latest_spec_version}</dd>

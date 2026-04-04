@@ -23,6 +23,7 @@ export type JobStatus =
   | "approved"
   | "rejected"
   | "printed"
+  | "completed"   // Artemis II and demo jobs land here
   | "failed";
 
 export type CadRunStatus = "queued" | "running" | "success" | "failed";
@@ -177,6 +178,7 @@ export const JOB_STATUS_LABELS: Record<JobStatus, string> = {
   approved: "Approved",
   rejected: "Rejected",
   printed: "Printed",
+  completed: "Completed",
   failed: "Failed",
 };
 
@@ -188,6 +190,7 @@ export const JOB_STATUS_COLORS: Record<JobStatus, string> = {
   approved: "bg-green-100 text-green-700",
   rejected: "bg-red-100 text-red-700",
   printed: "bg-teal-100 text-teal-700",
+  completed: "bg-green-100 text-green-800",
   failed: "bg-red-100 text-red-700",
 };
 
@@ -221,7 +224,7 @@ export interface ValidationReport {
 
 /** Returns true when a job is in a terminal (non-recoverable) state. */
 export function isTerminalJobStatus(status: JobStatus): boolean {
-  return status === "printed" || status === "rejected";
+  return status === "printed" || status === "rejected" || status === "completed";
 }
 
 /** Returns true when a job is actively being processed. */
