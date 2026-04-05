@@ -6,6 +6,9 @@
  * Renders the guided clarification conversation after the initial interpretation.
  * Shows the assistant's question and a simple text input for the user's reply.
  * Calls /api/intake/clarify and updates the parent state.
+ *
+ * Track 2 fix: ClarifyResponse interface now includes fallback_form and fit_envelope
+ * so the parent (UniversalCreatorFlow) can correctly detect and render ClarifyFallbackForm.
  */
 
 import { useState, useRef, useEffect } from "react";
@@ -15,7 +18,8 @@ interface Message {
   content: string;
 }
 
-interface ClarifyResponse {
+// Track 2 fix: added fallback_form and fit_envelope to match the route's response shape
+export interface ClarifyResponse {
   session_id: string;
   next_question: string | null;
   ready_to_generate: boolean;
@@ -24,6 +28,8 @@ interface ClarifyResponse {
   updated_missing_information: string[];
   updated_confidence: number;
   updated_mode: string;
+  fallback_form?: boolean;
+  fit_envelope?: Record<string, number> | null;
 }
 
 interface Props {
@@ -67,9 +73,20 @@ export default function ClarificationChat({
         body: JSON.stringify({ session_id: sessionId, user_reply: userReply }),
       });
 
-      if (!res.ok) throw new Error("Clarify request failed");
+      if (!res.ok) {
+        // Surface the server error message if available
+        let errMsg = "Sorry, I had a hiccup. Could you try again?";
+        try {
+          const errData = await res.json();
+          if (errData?.error) errMsg = `Error: ${errData.error}`;
+        } catch { /* ignore */ }
+        setMessages((prev) => [...prev, { role: "assistant", content: errMsg }]);
+        return;
+      }
 
       const data: ClarifyResponse = await res.json();
+
+      // Always call onUpdate so the parent can handle fallback_form
       onUpdate?.(data);
 
       if (data.ready_to_generate) {
@@ -79,6 +96,13 @@ export default function ClarificationChat({
         ]);
         setIsReady(true);
         onReady(data);
+      } else if (data.fallback_form) {
+        // Parent will render ClarifyFallbackForm — show a final message
+        setMessages((prev) => [
+          ...prev,
+          { role: "assistant", content: data.assistant_message },
+        ]);
+        // onUpdate already fired above — parent will swap to the fallback form
       } else if (data.next_question) {
         setMessages((prev) => [
           ...prev,
@@ -94,6 +118,7 @@ export default function ClarificationChat({
         ]);
       }
     } catch {
+      // Only show hiccup for genuine network/parse errors — not server errors
       setMessages((prev) => [
         ...prev,
         {

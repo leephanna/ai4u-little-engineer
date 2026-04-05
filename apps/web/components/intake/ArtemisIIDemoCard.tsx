@@ -38,27 +38,28 @@ interface DemoConfig {
 }
 
 // Pre-configured Artemis II demo parameters by scale
-const SCALE_PARAMS: Record<Scale, { height_mm: number; base_mm: number; label: string; time: string; filament: string }> = {
+// Track 1 fix: updated to match spacer (cylindrical rocket body) dimensions
+const SCALE_PARAMS: Record<Scale, { height_mm: number; diameter_mm: number; label: string; time: string; filament: string }> = {
   small: {
     height_mm: 120,
-    base_mm: 80,
+    diameter_mm: 32,
     label: "Small (12cm)",
-    time: "~2.5h",
-    filament: "~45g",
+    time: "~1.5h",
+    filament: "~35g",
   },
   medium: {
     height_mm: 200,
-    base_mm: 130,
+    diameter_mm: 50,
     label: "Medium (20cm)",
-    time: "~5h",
-    filament: "~90g",
+    time: "~3h",
+    filament: "~70g",
   },
   display: {
     height_mm: 320,
-    base_mm: 200,
+    diameter_mm: 75,
     label: "Display (32cm)",
-    time: "~10h",
-    filament: "~180g",
+    time: "~7h",
+    filament: "~150g",
   },
 };
 
@@ -256,6 +257,9 @@ export default function ArtemisIIDemoCard() {
               <div className="text-xs text-steel-500 mb-1">Filament</div>
               <div className="text-sm font-bold text-steel-100">
                 {scaleParams.filament} {config.material}
+              </div>
+              <div className="text-xs text-steel-500 mt-1">
+                ⌀{scaleParams.diameter_mm}mm × {scaleParams.height_mm}mm
               </div>
             </div>
           </div>

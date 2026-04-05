@@ -10,14 +10,14 @@
  * This dedicated route bypasses the LLM classification step and directly maps
  * the Artemis II demo to a valid parametric family:
  *
- *   Scale "small"   → standoff_block (display base, 80×80×120mm)
- *   Scale "medium"  → standoff_block (display base, 130×130×200mm)
- *   Scale "display" → standoff_block (display base, 200×200×320mm)
+   *   Scale "small"   → spacer (cylindrical rocket body, OD=32mm × H=120mm)
+ *   Scale "medium"  → spacer (cylindrical rocket body, OD=50mm × H=200mm)
+ *   Scale "display" → spacer (cylindrical rocket body, OD=75mm × H=320mm)
  *
- * The generated part is honestly labeled as a "commemorative display stand
- * inspired by the Artemis II mission" — not a photorealistic rocket model.
- * This is the correct, honest, and technically achievable outcome for the
- * current parametric CAD engine.
+ * Track 1 fix: remapped from standoff_block (rectangular block) to spacer
+ * (cylindrical body) with rocket-proportioned tall/narrow aspect ratios.
+ * The spacer generator is fully production-ready and produces a solid
+ * cylindrical body with chamfered edges — visually impressive as a rocket.
  *
  * Schema fix (commit after e7d553d):
  *   - sessions insert: removed non-existent `problem_text` column
@@ -34,27 +34,30 @@ import { createServiceClient } from "@/lib/supabase/service";
 import { shouldBypassLimits } from "@/lib/access-policy";
 
 // ── Scale → parametric dimensions mapping ────────────────────────────────────
+// Track 1 fix: remapped from standoff_block (rectangular block) to spacer
+// (cylindrical body) with rocket-proportioned tall/narrow aspect ratios.
+// spacer generator: outer_diameter, height, inner_diameter (0 = solid)
 const SCALE_MAP = {
   small: {
-    family: "standoff_block" as const,
-    parameters: { base_width: 80, height: 120, hole_diameter: 3.0 },
-    label: "Small Commemorative Display Stand",
-    time: "~2.5h",
-    filament: "~45g",
+    family: "spacer" as const,
+    parameters: { outer_diameter: 32, height: 120, inner_diameter: 0 },
+    label: "Small Artemis II Rocket Body (12cm)",
+    time: "~1.5h",
+    filament: "~35g",
   },
   medium: {
-    family: "standoff_block" as const,
-    parameters: { base_width: 130, height: 200, hole_diameter: 3.0 },
-    label: "Medium Commemorative Display Stand",
-    time: "~5h",
-    filament: "~90g",
+    family: "spacer" as const,
+    parameters: { outer_diameter: 50, height: 200, inner_diameter: 0 },
+    label: "Medium Artemis II Rocket Body (20cm)",
+    time: "~3h",
+    filament: "~70g",
   },
   display: {
-    family: "standoff_block" as const,
-    parameters: { base_width: 200, height: 320, hole_diameter: 3.0 },
-    label: "Display Commemorative Stand",
-    time: "~10h",
-    filament: "~180g",
+    family: "spacer" as const,
+    parameters: { outer_diameter: 75, height: 320, inner_diameter: 0 },
+    label: "Display Artemis II Rocket Body (32cm)",
+    time: "~7h",
+    filament: "~150g",
   },
 };
 
@@ -131,8 +134,8 @@ export async function POST(req: NextRequest) {
 
     // ── Build problem text (for audit records only) ─────────────
     const problemText =
-      `Artemis II commemorative display stand — ${scaleConfig.label}. ` +
-      `Dimensions: ${scaleConfig.parameters.base_width}×${scaleConfig.parameters.base_width}×${scaleConfig.parameters.height}mm. ` +
+      `Artemis II rocket body — ${scaleConfig.label}. ` +
+      `Dimensions: ⌀${scaleConfig.parameters.outer_diameter}mm × H${scaleConfig.parameters.height}mm. ` +
       `Material: ${material}. Quality: ${quality}. ` +
       `This is a showcase/demo print inspired by the Artemis II mission — not an official NASA model.`;
 
@@ -160,7 +163,7 @@ export async function POST(req: NextRequest) {
         user_id: user.id,
         session_id: session.id,
         status: "draft",
-        title: `Artemis II Demo — ${scaleConfig.label}`,
+        title: `Artemis II Rocket — ${scaleConfig.label}`,
         requested_family: scaleConfig.family,
         selected_family: scaleConfig.family,
         confidence_score: 0.92,
@@ -190,7 +193,7 @@ export async function POST(req: NextRequest) {
         assumptions_json: [
           `Artemis II demo — mapped to ${scaleConfig.family} for parametric generation`,
           `Scale: ${scale}, Material: ${material}, Quality: ${quality}`,
-          "Commemorative display stand — not an official NASA model",
+          "Commemorative Artemis II rocket body — not an official NASA model",
         ],
         missing_fields_json: [],
         created_by: "ai",
@@ -296,7 +299,7 @@ export async function POST(req: NextRequest) {
         parameters: scaleConfig.parameters,
         confidence: 0.92,
         mapping_strategy: "direct_parametric",
-        disclaimer: "Commemorative display stand — not an official NASA model",
+        disclaimer: "Commemorative Artemis II rocket body — not an official NASA model",
       },
       generation: {
         job_id: job.id,

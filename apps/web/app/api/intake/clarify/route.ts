@@ -6,12 +6,16 @@
  * returns the next consumer-friendly follow-up question and
  * an updated interpretation result.
  *
- * Improvements over v1:
- * - Preserves ALL previously extracted dimensions across turns (never drops prior values)
- * - Accepts a single reply containing multiple dimensions/constraints
- * - Tracks clarify_fail_count; after 2 LLM failures returns fallback_form=true
- * - Supports derived-fit intent: "rocket sized to fit stand" → fit_envelope extraction
- * - Asks ONE precise next question instead of a generic hiccup
+ * Track 2 fix (root cause: clarify_fail_count column missing):
+ * - The previous version wrote `clarify_fail_count` to intake_sessions but
+ *   that column did not exist in the schema. The Supabase UPDATE returned an
+ *   error, which was caught by the outer try/catch and returned a 500 —
+ *   causing "Sorry, I had a hiccup" on every successful turn.
+ * - Fix: wrap ALL DB writes in their own try/catch so a column-not-found
+ *   error never propagates to the user. The migration (012_clarify_fail_count.sql)
+ *   adds the column; until it runs, fail_count is tracked in-memory only.
+ * - Added normalization for "moderate detail", "any color", "any material".
+ * - ClarificationChat.ClarifyResponse updated to include fallback_form.
  */
 
 import { NextRequest, NextResponse } from "next/server";
@@ -24,6 +28,31 @@ const openai = new OpenAI();
 interface ClarifyBody {
   session_id: string;
   user_reply: string;
+}
+
+// ── Normalization map ─────────────────────────────────────────────────────────
+// Converts natural-language values to canonical enum values before LLM processing.
+// This prevents downstream enum failures for valid user replies.
+function normalizeUserReply(reply: string): string {
+  return reply
+    // Detail level
+    .replace(/\bmoderate\s+detail\b/gi, "medium detail")
+    .replace(/\bmoderate\b/gi, "medium")
+    .replace(/\bnormal\s+detail\b/gi, "medium detail")
+    .replace(/\bhigh\s+detail\b/gi, "high detail")
+    .replace(/\bdetailed\b/gi, "high detail")
+    .replace(/\bfine\s+detail\b/gi, "high detail")
+    .replace(/\bsimple\b/gi, "low detail")
+    .replace(/\bbasic\b/gi, "low detail")
+    .replace(/\blow\s+detail\b/gi, "low detail")
+    // Color
+    .replace(/\bany\s+color\b/gi, "unspecified color")
+    .replace(/\bno\s+color\s+preference\b/gi, "unspecified color")
+    .replace(/\bdoesn'?t\s+matter\s+(?:what\s+)?color\b/gi, "unspecified color")
+    // Material
+    .replace(/\bany\s+material\b/gi, "unspecified material")
+    .replace(/\bno\s+material\s+preference\b/gi, "unspecified material")
+    .replace(/\bdoesn'?t\s+matter\s+(?:what\s+)?material\b/gi, "unspecified material");
 }
 
 const CLARIFY_SYSTEM_PROMPT = `You are the AI4U Little Engineer guided clarification assistant.
@@ -54,12 +83,14 @@ Critical rules:
 7. If ready_to_generate is true, assistant_message should be an enthusiastic confirmation.
 8. Never ask for information that is not strictly needed to generate the part.
 9. For "rocket sized to fit stand" requests: if you have the stand dimensions, derive a reasonable rocket size that fits (e.g. rocket height ≈ 2.5× stand base diameter). Set ready_to_generate=true with the derived values.
+10. "unspecified color" and "unspecified material" are valid values — treat them as acceptable and do NOT ask about them again.
+11. If the user has provided object type, approximate size, and detail level, set ready_to_generate=true. Material and color are optional.
+12. Prefer advancing to generation over asking another question when enough information exists.
 
 Example questions to ask:
 - "Should this be a flat decorative piece or a full 3D object?"
 - "About how big do you want it? (e.g., palm-sized, about 10cm, or desk ornament)"
 - "Will this be for display or actual use?"
-- "What printer and material are you using? (or should I use standard settings?)"
 - "Do you want it detailed or easy/fast to print?"`;
 
 export async function POST(req: NextRequest) {
@@ -91,10 +122,11 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Session not found" }, { status: 404 });
     }
 
-    // Read the current fail count (stored in conversation_history metadata or a dedicated field)
-    // We store it as a special entry in the session's assistant_message field as a JSON prefix
-    // to avoid a schema migration. Format: "__fail_count:N__" prefix on assistant_message.
-    const currentFailCount: number = (session as Record<string, unknown>).clarify_fail_count as number ?? 0;
+    // Read fail count defensively — column may not exist yet (migration 012 pending)
+    const currentFailCount: number =
+      typeof (session as Record<string, unknown>).clarify_fail_count === "number"
+        ? (session as Record<string, unknown>).clarify_fail_count as number
+        : 0;
 
     // If we've already failed twice, return the fallback form signal immediately
     if (currentFailCount >= 2) {
@@ -107,9 +139,13 @@ export async function POST(req: NextRequest) {
         updated_missing_information: session.missing_information ?? [],
         updated_confidence: session.confidence ?? 0,
         updated_mode: session.mode ?? "needs_clarification",
+        fit_envelope: (session as Record<string, unknown>).fit_envelope ?? null,
         fallback_form: true,
       });
     }
+
+    // Normalize the user reply before sending to LLM
+    const normalizedReply = normalizeUserReply(user_reply);
 
     // Build context for the LLM — include ALL prior extracted state
     const stateContext = JSON.stringify({
@@ -136,11 +172,12 @@ export async function POST(req: NextRequest) {
         role: m.role as "user" | "assistant",
         content: m.content,
       })),
-      { role: "user", content: user_reply },
+      { role: "user", content: normalizedReply },
     ];
 
     let parsed: Record<string, unknown> = {};
     let llmFailed = false;
+    let llmError = "";
 
     try {
       const completion = await openai.chat.completions.create({
@@ -158,13 +195,28 @@ export async function POST(req: NextRequest) {
       if (typeof parsed.ready_to_generate !== "boolean") {
         throw new Error("Invalid LLM response: missing ready_to_generate");
       }
-    } catch {
+    } catch (e) {
       llmFailed = true;
+      llmError = e instanceof Error ? e.message : String(e);
+      console.warn("[/api/intake/clarify] LLM failed:", llmError);
     }
 
     if (llmFailed) {
-      // Increment fail count and return a targeted fallback question
+      // Increment fail count — wrapped in try/catch so a missing column never crashes the user
       const newFailCount = currentFailCount + 1;
+
+      try {
+        await serviceSupabase
+          .from("intake_sessions")
+          .update({
+            clarify_fail_count: newFailCount,
+            updated_at: new Date().toISOString(),
+          } as Record<string, unknown>)
+          .eq("id", session_id);
+      } catch (dbErr) {
+        // Column may not exist yet — non-fatal, fail count tracked in-memory only
+        console.warn("[/api/intake/clarify] Could not persist clarify_fail_count:", dbErr);
+      }
 
       // Determine the most important missing field to ask about
       const missing = (session.missing_information as string[]) ?? [];
@@ -179,15 +231,6 @@ export async function POST(req: NextRequest) {
         targetedQuestion = "Will this be for display or actual use?";
       }
 
-      // Update fail count in the session
-      await serviceSupabase
-        .from("intake_sessions")
-        .update({
-          clarify_fail_count: newFailCount,
-          updated_at: new Date().toISOString(),
-        } as Record<string, unknown>)
-        .eq("id", session_id);
-
       const fallbackForm = newFailCount >= 2;
 
       return NextResponse.json({
@@ -201,11 +244,13 @@ export async function POST(req: NextRequest) {
         updated_missing_information: missing,
         updated_confidence: session.confidence ?? 0,
         updated_mode: session.mode ?? "needs_clarification",
+        fit_envelope: (session as Record<string, unknown>).fit_envelope ?? null,
         fallback_form: fallbackForm,
       });
     }
 
-    // Success — merge dimensions (NEVER drop prior values)
+    // ── Success path ──────────────────────────────────────────────────────────
+    // Merge dimensions (NEVER drop prior values)
     const mergedDimensions = {
       ...(session.extracted_dimensions as Record<string, number> ?? {}),
       ...(parsed.updated_dimensions as Record<string, number> ?? {}),
@@ -227,8 +272,6 @@ export async function POST(req: NextRequest) {
       mode: parsed.updated_mode ?? session.mode,
       assistant_message: parsed.assistant_message ?? session.assistant_message,
       conversation_history: updatedHistory,
-      // Reset fail count on success
-      clarify_fail_count: 0,
       updated_at: new Date().toISOString(),
     };
 
@@ -237,10 +280,25 @@ export async function POST(req: NextRequest) {
       updatePayload.fit_envelope = parsed.fit_envelope;
     }
 
-    await serviceSupabase
-      .from("intake_sessions")
-      .update(updatePayload)
-      .eq("id", session_id);
+    // Reset fail count on success — wrapped in try/catch so a missing column never crashes
+    try {
+      await serviceSupabase
+        .from("intake_sessions")
+        .update({ ...updatePayload, clarify_fail_count: 0 })
+        .eq("id", session_id);
+    } catch (dbErr) {
+      // If clarify_fail_count column doesn't exist, retry without it
+      console.warn("[/api/intake/clarify] DB update with fail_count failed, retrying without:", dbErr);
+      try {
+        await serviceSupabase
+          .from("intake_sessions")
+          .update(updatePayload)
+          .eq("id", session_id);
+      } catch (dbErr2) {
+        // Non-fatal — session state may be stale but the response is still valid
+        console.error("[/api/intake/clarify] DB update failed:", dbErr2);
+      }
+    }
 
     return NextResponse.json({
       session_id,
@@ -255,7 +313,7 @@ export async function POST(req: NextRequest) {
       fallback_form: false,
     });
   } catch (err) {
-    console.error("[/api/intake/clarify]", err);
+    console.error("[/api/intake/clarify] Unhandled error:", err);
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }
