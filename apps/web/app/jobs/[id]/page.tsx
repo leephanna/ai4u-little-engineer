@@ -21,6 +21,11 @@ import { VirtualPrintLabPanel } from "@/components/jobs/VirtualPrintLabPanel";
 import { BrandSignatureBlock } from "@/components/BrandSignatureBlock";
 import { JobPreviewPanel } from "@/components/jobs/JobPreviewPanel";
 import { InventionProtectionPanel } from "@/components/jobs/InventionProtectionPanel";
+import { JobLiveHydration } from "@/components/jobs/JobLiveHydration";
+import { JobProgressBanner } from "@/components/jobs/JobProgressBanner";
+
+// Ensure the page is always dynamically rendered (no stale static cache)
+export const dynamic = "force-dynamic";
 
 interface PageProps {
   params: Promise<{ id: string }>;
@@ -83,6 +88,7 @@ export default async function JobDetailPage({ params }: PageProps) {
   const statusLabel = JOB_STATUS_LABELS[job.status as keyof typeof JOB_STATUS_LABELS] ?? job.status.replace(/_/g, " ");
 
   const isAwaitingApproval = job.status === "awaiting_approval";
+  const isNonTerminal = !["approved", "rejected", "printed", "completed", "failed"].includes(job.status);
 
   return (
     <div className="min-h-screen bg-steel-900">
@@ -116,6 +122,16 @@ export default async function JobDetailPage({ params }: PageProps) {
       </header>
 
       <main className="max-w-3xl mx-auto px-4 py-6 space-y-6">
+        {/* Live polling — refreshes page data until job reaches terminal state */}
+        {isNonTerminal && <JobLiveHydration jobId={id} currentStatus={job.status} />}
+
+        {/* Progress banner — shown while job is actively processing */}
+        {isNonTerminal && (
+          <JobProgressBanner
+            status={job.status}
+            cadRunStatus={latestRun?.status ?? null}
+          />
+        )}
 
         {/* 3D Preview — shown as soon as a successful run exists */}
         {latestRun?.status === "success" && (
@@ -163,7 +179,8 @@ export default async function JobDetailPage({ params }: PageProps) {
                 </span>
               </div>
 
-              {latestRun.validation_report_json && (
+              {/* Only show ValidationBadge for terminal run states — not while still running */}
+              {latestRun.validation_report_json && ["success", "failed"].includes(latestRun.status) && (
                 <ValidationBadge report={latestRun.validation_report_json as unknown as ValidationReport} />
               )}
 

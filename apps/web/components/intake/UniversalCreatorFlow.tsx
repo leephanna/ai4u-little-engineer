@@ -20,6 +20,7 @@ import UniversalInputComposer, { type ComposerPayload } from "./UniversalInputCo
 import LivePrintPlan from "./LivePrintPlan";
 import ClarificationChat from "./ClarificationChat";
 import VisualPreviewPanel from "./VisualPreviewPanel";
+import { ClarifyFallbackForm } from "./ClarifyFallbackForm";
 import type { InterpretationResult } from "@/app/api/intake/interpret/route";
 
 type FlowPhase = "idle" | "interpreting" | "clarifying" | "previewing" | "generating" | "done";
@@ -48,6 +49,8 @@ export default function UniversalCreatorFlow({
   const [interpretation, setInterpretation] = useState<InterpretationResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [jobId, setJobId] = useState<string | null>(null);
+  const [fitEnvelope, setFitEnvelope] = useState<Record<string, number> | null>(null);
+  const [showFallbackForm, setShowFallbackForm] = useState(false);
 
   const handleComposerSubmit = useCallback(async (payload: ComposerPayload) => {
     setPhase("interpreting");
@@ -85,8 +88,15 @@ export default function UniversalCreatorFlow({
   }, []);
 
   const handleClarifyUpdate = useCallback(
-    (updated: { updated_dimensions: Record<string, number>; updated_confidence: number; updated_mode: string }) => {
+    (updated: { updated_dimensions: Record<string, number>; updated_confidence: number; updated_mode: string; fit_envelope?: Record<string, number> | null; fallback_form?: boolean }) => {
       if (!interpretation) return;
+      // Store fit_envelope if returned
+      if (updated.fit_envelope) setFitEnvelope(updated.fit_envelope);
+      // If the clarify route signals fallback_form, show the structured form
+      if (updated.fallback_form) {
+        setShowFallbackForm(true);
+        return;
+      }
       setInterpretation((prev) =>
         prev
           ? {
@@ -134,6 +144,8 @@ export default function UniversalCreatorFlow({
           intake_mode: interpretation.mode,
           intake_family_candidate: interpretation.family_candidate,
           intake_dimensions: interpretation.extracted_dimensions,
+          // Pass fit_envelope so the invent route can derive correct sizing
+          intake_fit_envelope: fitEnvelope ?? undefined,
         }),
       });
 
@@ -159,14 +171,67 @@ export default function UniversalCreatorFlow({
       setError("Generation failed. Please try again.");
       setPhase("previewing");
     }
-  }, [interpretation, router]);
+  }, [interpretation, fitEnvelope, router]);
 
   const handleReset = useCallback(() => {
     setPhase("idle");
     setInterpretation(null);
     setError(null);
     setJobId(null);
+    setFitEnvelope(null);
+    setShowFallbackForm(false);
   }, []);
+
+  const handleFallbackConfirm = useCallback(async (values: { object_type: string; height_mm: string; width_mm: string; material: string; purpose: string; detail_level: string }) => {
+    setPhase("generating");
+    setError(null);
+    setShowFallbackForm(false);
+
+    const dims: Record<string, number> = {};
+    if (values.height_mm) dims.height_mm = parseFloat(values.height_mm);
+    if (values.width_mm) dims.width_mm = parseFloat(values.width_mm);
+
+    const problemText = [
+      `Create a ${values.object_type}`,
+      Object.keys(dims).length > 0
+        ? `with dimensions: ${Object.entries(dims).map(([k, v]) => `${k}=${v}mm`).join(", ")}`
+        : "",
+      `Material: ${values.material}. Purpose: ${values.purpose}. Quality: ${values.detail_level}.`,
+    ].filter(Boolean).join(" ");
+
+    try {
+      const res = await fetch("/api/invent", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          problem: problemText,
+          intake_session_id: interpretation?.session_id,
+          intake_mode: interpretation?.mode ?? "parametric_part",
+          intake_family_candidate: interpretation?.family_candidate,
+          intake_dimensions: { ...interpretation?.extracted_dimensions, ...dims },
+        }),
+      });
+
+      if (!res.ok) {
+        const data = await res.json();
+        if (data.upgrade_required) {
+          setError("Monthly limit reached. Please upgrade your plan to continue.");
+          setPhase("clarifying");
+          return;
+        }
+        throw new Error("Generation failed");
+      }
+
+      const data = await res.json();
+      setJobId(data.job_id);
+      setPhase("done");
+      setTimeout(() => router.push(`/jobs/${data.job_id}`), 1500);
+    } catch {
+      setError("Generation failed. Please try again.");
+      setPhase("clarifying");
+      setShowFallbackForm(true);
+    }
+  }, [interpretation, router]);
 
   return (
     <div className="space-y-4">
@@ -194,12 +259,23 @@ export default function UniversalCreatorFlow({
       )}
 
       {/* Clarification chat */}
-      {phase === "clarifying" && interpretation?.assistant_message && (
+      {phase === "clarifying" && !showFallbackForm && interpretation?.assistant_message && (
         <ClarificationChat
           sessionId={interpretation.session_id}
           initialQuestion={interpretation.assistant_message}
           onReady={handleClarifyReady}
           onUpdate={handleClarifyUpdate}
+        />
+      )}
+
+      {/* Fallback form — shown when LLM clarify fails twice */}
+      {phase === "clarifying" && showFallbackForm && (
+        <ClarifyFallbackForm
+          sessionId={interpretation?.session_id ?? ""}
+          existingDimensions={interpretation?.extracted_dimensions ?? {}}
+          existingObjectType={interpretation?.inferred_object_type ?? ""}
+          onConfirm={handleFallbackConfirm}
+          onReset={handleReset}
         />
       )}
 
