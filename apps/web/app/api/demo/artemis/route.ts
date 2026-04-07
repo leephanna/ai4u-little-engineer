@@ -32,6 +32,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createServiceClient } from "@/lib/supabase/service";
 import { shouldBypassLimits } from "@/lib/access-policy";
+import { runTruthGate, formatTruthGateReceipt } from "@/lib/truth-gate";
 
 // ── Scale → parametric dimensions mapping ────────────────────────────────────
 // Track 1 fix: remapped from standoff_block (rectangular block) to spacer
@@ -132,7 +133,25 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // ── Build problem text (for audit records only) ─────────────
+    // ── Truth Gate (demo preset — bypasses confidence/clarify checks) ───
+    const truthGateInput = {
+      family: scaleConfig.family,
+      dimensions: scaleConfig.parameters,
+      confidence: 0.92,
+      is_demo_preset: true,
+    };
+    const truthGateResult = runTruthGate(truthGateInput);
+    const truthGateReceipt = formatTruthGateReceipt(truthGateResult, truthGateInput);
+    // Demo presets always pass the Truth Gate — log if they somehow don't
+    if (truthGateResult.verdict !== "GO") {
+      console.error("[artemis] Truth Gate rejected demo preset:", truthGateResult);
+      return NextResponse.json(
+        { error: "Demo preset failed Truth Gate validation", detail: truthGateResult.reason },
+        { status: 500 }
+      );
+    }
+
+    // ── Build problem text (for audit records only) ─────────────────
     const problemText =
       `Artemis II rocket body — ${scaleConfig.label}. ` +
       `Dimensions: ⌀${scaleConfig.parameters.outer_diameter}mm × H${scaleConfig.parameters.height}mm. ` +
@@ -167,6 +186,10 @@ export async function POST(req: NextRequest) {
         requested_family: scaleConfig.family,
         selected_family: scaleConfig.family,
         confidence_score: 0.92,
+        capability_id: `rocket_body_v1`,
+        truth_label: truthGateResult.truth_label,
+        truth_result: truthGateReceipt,
+        is_demo_preset: true,
       })
       .select("id")
       .single();
@@ -309,6 +332,7 @@ export async function POST(req: NextRequest) {
       },
       vpl_preview: vplPreview,
       result: "GO",
+      truth_gate: truthGateReceipt,
     };
 
     return NextResponse.json({

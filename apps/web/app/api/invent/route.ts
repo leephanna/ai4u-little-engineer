@@ -28,6 +28,7 @@ import {
   MVP_PART_FAMILIES,
   type MvpPartFamily,
 } from "@ai4u/shared";
+import { runTruthGate, formatTruthGateReceipt } from "@/lib/truth-gate";
 
 // ─────────────────────────────────────────────────────────────
 // LLM Invention Prompt
@@ -214,12 +215,19 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // ── Step 2: Validate and reject unsafe designs ──────────────
-    if (
-      !inventionResult.confidence ||
-      inventionResult.confidence < 0.5 ||
-      inventionResult.rejection_reason
-    ) {
+    // ── Step 2: Truth Gate — validate and reject unsafe designs ──
+    const truthGateInput = {
+      family: inventionResult.family,
+      dimensions: inventionResult.parameters ?? {},
+      confidence: inventionResult.confidence ?? 0,
+      missing_fields: [],
+      is_demo_preset: false,
+      llm_rejection_reason: inventionResult.rejection_reason ?? null,
+    };
+    const truthGateResult = runTruthGate(truthGateInput);
+    const truthGateReceipt = formatTruthGateReceipt(truthGateResult, truthGateInput);
+
+    if (truthGateResult.verdict === "REJECT" || truthGateResult.verdict === "CLARIFY") {
       // Log the rejected invention
       await serviceSupabase.from("invention_requests").insert({
         user_id: user.id,
@@ -229,41 +237,25 @@ export async function POST(request: NextRequest) {
         reasoning: inventionResult.reasoning ?? null,
         confidence: inventionResult.confidence ?? 0,
         status: "rejected",
-        rejection_reason:
-          inventionResult.rejection_reason ??
-          "Low confidence — problem may not be solvable with available part families.",
+        rejection_reason: truthGateResult.reason ?? "Truth Gate rejected",
       });
 
       return NextResponse.json(
         {
           rejected: true,
-          reason:
-            inventionResult.rejection_reason ??
-            "This problem cannot be solved with the available part families. Try describing a simpler mechanical need.",
+          reason: truthGateResult.reason,
+          truth_label: truthGateResult.truth_label,
+          verdict: truthGateResult.verdict,
+          missing_dimensions: truthGateResult.missing_dimensions,
           confidence: inventionResult.confidence ?? 0,
+          truth_gate_receipt: truthGateReceipt,
         },
         { status: 422 }
       );
     }
 
-    const validationError = validateInventionResult(inventionResult);
-    if (validationError) {
-      await serviceSupabase.from("invention_requests").insert({
-        user_id: user.id,
-        problem_text: problemText,
-        family: inventionResult.family ?? null,
-        parameters: inventionResult.parameters ?? {},
-        reasoning: inventionResult.reasoning ?? null,
-        confidence: inventionResult.confidence ?? 0,
-        status: "rejected",
-        rejection_reason: validationError,
-      });
-
-      return NextResponse.json(
-        { rejected: true, reason: validationError, confidence: inventionResult.confidence },
-        { status: 422 }
-      );
-    }
+    // CONCEPT_ONLY: generate the job but mark it as concept-only
+    const isConceptOnly = truthGateResult.verdict === "CONCEPT_ONLY";
 
     // ── Step 3: Create session → job → part_spec ────────────────
     // Create a session
@@ -287,6 +279,10 @@ export async function POST(request: NextRequest) {
         status: "draft",
         title: `Invention: ${problemText.slice(0, 60)}`,
         description: inventionResult.reasoning,
+        capability_id: `${inventionResult.family}_v1`,
+        truth_label: truthGateResult.truth_label,
+        truth_result: truthGateReceipt,
+        is_demo_preset: false,
       })
       .select("id")
       .single();
@@ -419,7 +415,7 @@ export async function POST(request: NextRequest) {
       .select("id")
       .single();
 
-    // ── Step 6: Return result ────────────────────────────────────
+        // ── Step 6: Return result ────────────────────────────
     return NextResponse.json({
       invention_id: inventionRecord?.id ?? null,
       job_id: job.id,
@@ -430,6 +426,9 @@ export async function POST(request: NextRequest) {
       parameters: inventionResult.parameters,
       reasoning: inventionResult.reasoning,
       confidence: inventionResult.confidence,
+      truth_label: truthGateResult.truth_label,
+      is_concept_only: isConceptOnly,
+      truth_gate_receipt: truthGateReceipt,
       status: "generating",
     });
   } catch (err) {

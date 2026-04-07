@@ -21,9 +21,18 @@ import LivePrintPlan from "./LivePrintPlan";
 import ClarificationChat from "./ClarificationChat";
 import VisualPreviewPanel from "./VisualPreviewPanel";
 import { ClarifyFallbackForm } from "./ClarifyFallbackForm";
+import { UnsupportedRequestPanel, type TruthVerdict } from "./UnsupportedRequestPanel";
 import type { InterpretationResult } from "@/app/api/intake/interpret/route";
 
-type FlowPhase = "idle" | "interpreting" | "clarifying" | "previewing" | "generating" | "done";
+type FlowPhase = "idle" | "interpreting" | "clarifying" | "previewing" | "generating" | "done" | "unsupported";
+
+interface TruthGateRejection {
+  verdict: TruthVerdict;
+  reason: string;
+  truth_label?: string;
+  missing_dimensions?: string[];
+  confidence?: number;
+}
 
 interface Props {
   printerName?: string;
@@ -51,6 +60,7 @@ export default function UniversalCreatorFlow({
   const [jobId, setJobId] = useState<string | null>(null);
   const [fitEnvelope, setFitEnvelope] = useState<Record<string, number> | null>(null);
   const [showFallbackForm, setShowFallbackForm] = useState(false);
+  const [truthGateRejection, setTruthGateRejection] = useState<TruthGateRejection | null>(null);
 
   const handleComposerSubmit = useCallback(async (payload: ComposerPayload) => {
     setPhase("interpreting");
@@ -156,6 +166,18 @@ export default function UniversalCreatorFlow({
           setPhase("previewing");
           return;
         }
+        // Truth Gate rejection: show honest unsupported panel
+        if (res.status === 422 && (data.verdict === "REJECT" || data.verdict === "CLARIFY")) {
+          setTruthGateRejection({
+            verdict: data.verdict as TruthVerdict,
+            reason: data.reason ?? "This request could not be processed.",
+            truth_label: data.truth_label,
+            missing_dimensions: data.missing_dimensions,
+            confidence: data.confidence,
+          });
+          setPhase("unsupported");
+          return;
+        }
         throw new Error("Generation failed");
       }
 
@@ -180,6 +202,7 @@ export default function UniversalCreatorFlow({
     setJobId(null);
     setFitEnvelope(null);
     setShowFallbackForm(false);
+    setTruthGateRejection(null);
   }, []);
 
   const handleFallbackConfirm = useCallback(async (values: { object_type: string; height_mm: string; width_mm: string; material: string; purpose: string; detail_level: string }) => {
@@ -251,6 +274,23 @@ export default function UniversalCreatorFlow({
         <div className="rounded-lg bg-red-900/30 border border-red-700 px-4 py-3 text-sm text-red-300">
           {error}
         </div>
+      )}
+
+      {/* Truth Gate rejection — honest unsupported state */}
+      {phase === "unsupported" && truthGateRejection && (
+        <UnsupportedRequestPanel
+          verdict={truthGateRejection.verdict}
+          reason={truthGateRejection.reason}
+          truth_label={truthGateRejection.truth_label}
+          missing_dimensions={truthGateRejection.missing_dimensions}
+          confidence={truthGateRejection.confidence}
+          onTryAgain={handleReset}
+          onUseFallbackForm={truthGateRejection.verdict === "CLARIFY" ? () => {
+            setPhase("clarifying");
+            setShowFallbackForm(true);
+            setTruthGateRejection(null);
+          } : undefined}
+        />
       )}
 
       {/* Live Print Plan — shown during and after interpretation */}
