@@ -174,12 +174,6 @@ export default function LandingPage() {
           <span className="font-semibold text-steel-100 text-sm">AI4U Little Engineer</span>
         </div>
         <div className="flex items-center gap-3">
-          <Link
-            href="/pricing"
-            className="text-steel-400 hover:text-steel-200 text-sm transition-colors hidden sm:block"
-          >
-            Pricing
-          </Link>
           <Link href="/login" className="text-steel-400 hover:text-steel-200 text-sm transition-colors">
             Sign In
           </Link>
@@ -479,41 +473,25 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* ── Pricing preview CTA → /pricing ── */}
+      {/* ── CTA: Start Creating ── */}
       <section className="max-w-4xl mx-auto px-6 py-16">
         <div className="bg-gradient-to-br from-brand-950 via-steel-800 to-steel-900 border border-brand-800 rounded-2xl p-8 sm:p-12 text-center">
           <div className="text-brand-400 text-xs font-bold uppercase tracking-wider mb-3">
-            Simple pricing
+            Free during early access
           </div>
           <h2 className="text-3xl sm:text-4xl font-bold text-steel-100 mb-4">
-            Start free. Upgrade when you&apos;re hooked.
+            Start creating. No credit card required.
           </h2>
           <p className="text-steel-400 mb-8 max-w-xl mx-auto">
-            Free plan includes 3 generations per month. Maker and Pro plans unlock unlimited
-            generations, priority queue, and advanced part families.
+            AI4U Little Engineer is free to use during early access. Paid plans with unlimited
+            generations and priority queue are coming soon.
           </p>
-          <div className="flex flex-col sm:flex-row gap-4 justify-center items-center mb-6">
-            <div className="text-center">
-              <div className="text-3xl font-bold text-steel-100">Free</div>
-              <div className="text-steel-500 text-sm">3 parts/month</div>
-            </div>
-            <div className="text-steel-600 hidden sm:block">·</div>
-            <div className="text-center">
-              <div className="text-3xl font-bold text-brand-400">$9/mo</div>
-              <div className="text-steel-500 text-sm">Maker — unlimited</div>
-            </div>
-            <div className="text-steel-600 hidden sm:block">·</div>
-            <div className="text-center">
-              <div className="text-3xl font-bold text-purple-400">$29/mo</div>
-              <div className="text-steel-500 text-sm">Pro — priority + API</div>
-            </div>
-          </div>
           <div className="flex flex-col sm:flex-row gap-3 justify-center">
             <Link href="/signup" className="btn-primary text-base py-3 px-8">
-              Start Free
+              Start Creating Free
             </Link>
-            <Link href="/pricing" className="btn-secondary text-base py-3 px-8">
-              Compare Plans
+            <Link href="/demo/artemis" className="btn-secondary text-base py-3 px-8">
+              🚀 Try Artemis II Demo
             </Link>
           </div>
         </div>
@@ -537,8 +515,8 @@ export default function LandingPage() {
           <Link href="/signup" className="hover:text-steel-300 transition-colors">
             Sign Up
           </Link>
-          <Link href="/pricing" className="hover:text-steel-300 transition-colors">
-            Pricing
+          <Link href="/demo/artemis" className="hover:text-steel-300 transition-colors">
+            Try Demo
           </Link>
           <Link href="/settings/printer" className="hover:text-steel-300 transition-colors">
             Printer Settings

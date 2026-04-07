@@ -1,26 +1,41 @@
+/**
+ * Job Detail Page — Reality Lock Edition
+ *
+ * Only surfaces that are fully backed by working API routes are shown:
+ *   ✅ Preview (STL inline viewer)
+ *   ✅ Part Spec Summary
+ *   ✅ Latest CAD Run status
+ *   ✅ Artifacts (download links)
+ *   ✅ Virtual Print Lab
+ *   ✅ Print Info + Save to Library
+ *   ✅ Share
+ *   ✅ Job metadata
+ *
+ * Removed (no backing API routes — to be restored in follow-up sprints):
+ *   ❌ ApprovalPanel       → /api/jobs/[id]/approve does not exist
+ *   ❌ RevisionPanel       → /api/jobs/[id]/revise does not exist
+ *   ❌ FeedbackUploadWidget → /api/feedback/upload does not exist
+ *   ❌ InventionProtectionPanel → /api/jobs/[id]/patent-summary does not exist
+ *   ❌ TagEditor           → persists but does not display correctly
+ */
 import { createClient } from "@/lib/supabase/server";
 import { redirect, notFound } from "next/navigation";
 import Link from "next/link";
-import type { Job, PartSpec, CadRun, Artifact, Approval, ValidationReport } from "@/lib/types";
+import type { Job, PartSpec, CadRun, Artifact, ValidationReport } from "@/lib/types";
 import {
   JOB_STATUS_COLORS,
   JOB_STATUS_LABELS,
   CAD_RUN_STATUS_COLORS,
   CAD_RUN_STATUS_LABELS,
 } from "@/lib/types";
-import { ApprovalPanel } from "@/components/jobs/ApprovalPanel";
 import { ArtifactList } from "@/components/jobs/ArtifactList";
 import { SpecSummary } from "@/components/jobs/SpecSummary";
 import { ValidationBadge } from "@/components/jobs/ValidationBadge";
-import { RevisionPanel } from "@/components/jobs/RevisionPanel";
 import { SharePanel } from "@/components/SharePanel";
-import { TagEditor } from "@/components/TagEditor";
 import { PrintEstimatePanel } from "@/components/jobs/PrintEstimatePanel";
-import { FeedbackUploadWidget } from "@/components/jobs/FeedbackUploadWidget";
 import { VirtualPrintLabPanel } from "@/components/jobs/VirtualPrintLabPanel";
 import { BrandSignatureBlock } from "@/components/BrandSignatureBlock";
 import { JobPreviewPanel } from "@/components/jobs/JobPreviewPanel";
-import { InventionProtectionPanel } from "@/components/jobs/InventionProtectionPanel";
 import { JobLiveHydration } from "@/components/jobs/JobLiveHydration";
 import { JobProgressBanner } from "@/components/jobs/JobProgressBanner";
 
@@ -52,7 +67,7 @@ export default async function JobDetailPage({ params }: PageProps) {
   if (jobError || !job) notFound();
 
   // Fetch related data in parallel
-  const [specsRes, runsRes, artifactsRes, approvalsRes] = await Promise.all([
+  const [specsRes, runsRes, artifactsRes] = await Promise.all([
     supabase
       .from("part_specs")
       .select("*")
@@ -68,27 +83,19 @@ export default async function JobDetailPage({ params }: PageProps) {
       .select("*")
       .eq("job_id", id)
       .order("created_at", { ascending: false }),
-    supabase
-      .from("approvals")
-      .select("*")
-      .eq("job_id", id)
-      .order("decided_at", { ascending: false }),
   ]);
 
   const specs: PartSpec[] = specsRes.data ?? [];
   const runs: CadRun[] = runsRes.data ?? [];
   const artifacts: Artifact[] = artifactsRes.data ?? [];
-  const approvals: Approval[] = approvalsRes.data ?? [];
 
   const latestSpec = specs[0] ?? null;
   const latestRun = runs[0] ?? null;
-  const latestApproval = approvals[0] ?? null;
 
   const statusColor = JOB_STATUS_COLORS[job.status as keyof typeof JOB_STATUS_COLORS] ?? "bg-gray-100 text-gray-700";
   const statusLabel = JOB_STATUS_LABELS[job.status as keyof typeof JOB_STATUS_LABELS] ?? job.status.replace(/_/g, " ");
 
-  const isAwaitingApproval = job.status === "awaiting_approval";
-  const isNonTerminal = !["approved", "rejected", "printed", "completed", "failed"].includes(job.status);
+  const isNonTerminal = !["approved", "rejected", "printed", "completed", "failed", "awaiting_approval"].includes(job.status);
 
   return (
     <div className="min-h-screen bg-steel-900">
@@ -119,6 +126,14 @@ export default async function JobDetailPage({ params }: PageProps) {
             Generate
           </Link>
         )}
+
+        {/* New Design button — available from any terminal state */}
+        <Link
+          href="/invent"
+          className="btn-secondary text-sm py-1.5 px-3"
+        >
+          New Design
+        </Link>
       </header>
 
       <main className="max-w-3xl mx-auto px-4 py-6 space-y-6">
@@ -215,7 +230,8 @@ export default async function JobDetailPage({ params }: PageProps) {
             />
           </section>
         )}
-        {/* Print Estimates + Save to Library */}
+
+        {/* Print Info + Save to Library */}
         {latestRun?.status === "success" && (
           <section>
             <h2 className="text-sm font-medium text-steel-400 uppercase tracking-wide mb-3">
@@ -233,82 +249,6 @@ export default async function JobDetailPage({ params }: PageProps) {
           </section>
         )}
 
-        {/* Approval Panel */}
-        {isAwaitingApproval && latestRun && (
-          <section>
-            <h2 className="text-sm font-medium text-steel-400 uppercase tracking-wide mb-3">
-              Review & Approve
-            </h2>
-            <ApprovalPanel
-              jobId={id}
-              cadRunId={latestRun.id}
-              existingApproval={latestApproval}
-            />
-          </section>
-        )}
-
-        {/* Revision Panel — shown after completed or failed runs */}
-        {latestRun && ["completed", "failed"].includes(job.status) && latestSpec && (
-          <section>
-            <h2 className="text-sm font-medium text-steel-400 uppercase tracking-wide mb-3">
-              Iterate
-            </h2>
-            <RevisionPanel
-              jobId={id}
-              currentVersion={latestSpec.version}
-              currentFamily={latestSpec.family}
-            />
-          </section>
-        )}
-
-        {/* Approval result */}
-        {latestApproval && !isAwaitingApproval && (
-          <section>
-            <div
-              className={`card ${
-                latestApproval.decision === "approved"
-                  ? "border-green-800"
-                  : "border-red-800"
-              }`}
-            >
-              <div className="flex items-center gap-2">
-                <span className="text-lg">
-                  {latestApproval.decision === "approved" ? "✅" : "❌"}
-                </span>
-                <span className="font-medium text-steel-100 capitalize">
-                  {latestApproval.decision.replace(/_/g, " ")}
-                </span>
-              </div>
-              {latestApproval.notes && (
-                <p className="text-steel-400 text-sm mt-2">{latestApproval.notes}</p>
-              )}
-            </div>
-          </section>
-        )}
-
-        {/* Feedback Photo Upload — shown after printing */}
-        {job.status === "printed" && (
-          <section>
-            <h2 className="text-sm font-medium text-steel-400 uppercase tracking-wide mb-3">
-              Print Feedback
-            </h2>
-            <FeedbackUploadWidget
-              feedbackId={id}
-              jobId={id}
-            />
-          </section>
-        )}
-
-        {/* Tags */}
-        <section>
-          <h2 className="text-sm font-medium text-steel-400 uppercase tracking-wide mb-3">
-            Tags
-          </h2>
-          <TagEditor
-            jobId={id}
-            initialTags={(job as Job & { tags?: string[] }).tags ?? []}
-          />
-        </section>
         {/* Share */}
         <section>
           <h2 className="text-sm font-medium text-steel-400 uppercase tracking-wide mb-3">
@@ -320,18 +260,6 @@ export default async function JobDetailPage({ params }: PageProps) {
             initialToken={(job as Job & { share_token?: string | null }).share_token ?? null}
           />
         </section>
-        {/* Invention Protection Mode */}
-        {latestRun?.status === "success" && (
-          <section>
-            <h2 className="text-sm font-medium text-steel-400 uppercase tracking-wide mb-3">
-              Invention Protection
-            </h2>
-            <InventionProtectionPanel
-              jobId={id}
-              initialSummary={(job as Job & { patent_summary_json?: unknown }).patent_summary_json as Parameters<typeof InventionProtectionPanel>[0]["initialSummary"] ?? null}
-            />
-          </section>
-        )}
 
         {/* Brand Signature */}
         <section>

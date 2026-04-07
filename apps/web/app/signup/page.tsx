@@ -17,7 +17,8 @@ import { Suspense } from "react";
 
 function SignupForm() {
   const searchParams = useSearchParams();
-  const redirectTo = searchParams.get("redirectTo") || searchParams.get("redirect") || "/dashboard";
+  // Default post-signup destination is the canonical creation path.
+  const redirectTo = searchParams.get("redirectTo") || searchParams.get("redirect") || "/invent";
 
   const router = useRouter();
   const [email, setEmail] = useState("");

@@ -345,9 +345,6 @@ export default function GalleryPage() {
           </Link>
         </div>
         <div className="flex items-center gap-3">
-          <Link href="/marketplace" className="text-steel-400 hover:text-steel-200 text-sm transition-colors hidden sm:block">
-            Marketplace
-          </Link>
           <Link href="/login" className="text-steel-400 hover:text-steel-200 text-sm transition-colors">
             Sign In
           </Link>
@@ -441,8 +438,8 @@ export default function GalleryPage() {
             <Link href="/invent" className="btn-primary text-base py-3 px-8">
               Describe Your Own Design
             </Link>
-            <Link href="/marketplace" className="btn-secondary text-base py-3 px-8">
-              Browse the Marketplace
+            <Link href="/demo/artemis" className="btn-secondary text-base py-3 px-8">
+              🚀 Try Artemis II Demo
             </Link>
           </div>
         </div>

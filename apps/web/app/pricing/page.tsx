@@ -1,25 +1,35 @@
 /**
- * /pricing — Public pricing page
+ * /pricing — Coming Soon (Reality Lock)
  *
- * Phase 2C: Stripe billing integration
+ * Billing is not yet active. STRIPE_SECRET_KEY is not configured.
+ * The previous PricingCards component would fail at runtime with a 500.
+ *
+ * This page is an honest placeholder that:
+ *   - Shows planned tiers clearly labelled "Coming soon"
+ *   - Directs users to the free early-access product
+ *   - Does NOT imply a working checkout flow
+ *
+ * Restore: Replace this file with the Stripe-backed version once
+ * STRIPE_SECRET_KEY, STRIPE_PRICE_IDs, and webhook secret are configured.
  */
-
 import Link from "next/link";
-import { PricingCards } from "@/components/billing/PricingCards";
 
 export const metadata = {
   title: "Pricing — AI4U Little Engineer",
   description:
-    "Simple, transparent pricing for AI-powered CAD generation. Start free, upgrade when you need more.",
+    "Paid plans are coming soon. AI4U Little Engineer is free to use during early access.",
 };
 
 export default function PricingPage() {
   return (
-    <div className="min-h-screen bg-steel-900">
+    <div className="min-h-screen bg-steel-900 flex flex-col">
       {/* Nav */}
       <nav className="border-b border-steel-800 px-6 py-4 flex items-center justify-between">
-        <Link href="/" className="font-bold text-steel-100 text-lg">
-          ⚙️ AI4U Little Engineer
+        <Link href="/" className="flex items-center gap-2">
+          <div className="w-7 h-7 bg-brand-600 rounded flex items-center justify-center">
+            <span className="text-white font-bold text-xs">AI</span>
+          </div>
+          <span className="font-semibold text-steel-100 text-sm">AI4U Little Engineer</span>
         </Link>
         <div className="flex items-center gap-4">
           <Link href="/login" className="text-steel-400 hover:text-steel-100 text-sm transition-colors">
@@ -31,82 +41,87 @@ export default function PricingPage() {
         </div>
       </nav>
 
-      {/* Hero */}
-      <section className="text-center py-16 px-4">
-        <div className="inline-flex items-center gap-2 bg-brand-950 border border-brand-800 rounded-full px-4 py-1.5 text-brand-400 text-sm mb-6">
-          <span>💳</span>
-          <span>Simple, transparent pricing</span>
+      {/* Content */}
+      <main className="flex-1 flex items-center justify-center px-6 py-20">
+        <div className="max-w-lg text-center">
+          {/* Badge */}
+          <div className="inline-flex items-center gap-2 bg-brand-900/50 border border-brand-700 rounded-full px-4 py-1.5 text-brand-400 text-xs font-semibold mb-8">
+            <span className="w-1.5 h-1.5 rounded-full bg-brand-400 animate-pulse" />
+            Early Access — Free
+          </div>
+
+          <h1 className="text-4xl font-bold text-steel-100 mb-4">
+            Pricing is coming soon.
+          </h1>
+
+          <p className="text-steel-400 text-lg mb-6 leading-relaxed">
+            AI4U Little Engineer is{" "}
+            <strong className="text-steel-200">free to use</strong> during early
+            access. Paid plans with unlimited generations, priority queue, and
+            advanced part families are in development.
+          </p>
+
+          {/* Planned tiers — clearly labelled as planned, not active */}
+          <div className="grid grid-cols-3 gap-3 mb-10 text-left">
+            {[
+              {
+                name: "Free",
+                price: "Free",
+                desc: "3 parts / month",
+                color: "text-steel-300",
+              },
+              {
+                name: "Maker",
+                price: "$9/mo",
+                desc: "Unlimited · Priority",
+                color: "text-brand-400",
+              },
+              {
+                name: "Pro",
+                price: "$29/mo",
+                desc: "API access · Teams",
+                color: "text-purple-400",
+              },
+            ].map((tier) => (
+              <div
+                key={tier.name}
+                className="bg-steel-800/60 border border-steel-700 rounded-xl p-4 opacity-70"
+              >
+                <div className={`text-lg font-bold mb-0.5 ${tier.color}`}>
+                  {tier.price}
+                </div>
+                <div className="text-steel-300 text-xs font-semibold">
+                  {tier.name}
+                </div>
+                <div className="text-steel-500 text-xs mt-1">{tier.desc}</div>
+                <div className="text-steel-600 text-xs mt-2 italic">
+                  Coming soon
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <div className="flex flex-col sm:flex-row gap-3 justify-center">
+            <Link href="/signup" className="btn-primary text-base py-3 px-8">
+              Start Creating Free
+            </Link>
+            <Link href="/demo/artemis" className="btn-secondary text-base py-3 px-8">
+              🚀 Try Artemis II Demo
+            </Link>
+          </div>
+
+          <p className="text-steel-600 text-xs mt-6">
+            No credit card required · No commitment
+          </p>
         </div>
-        <h1 className="text-4xl md:text-5xl font-bold text-steel-100 mb-4">
-          Pay for what you use.
-          <br />
-          <span className="text-brand-400">Not a penny more.</span>
-        </h1>
-        <p className="text-steel-400 text-lg max-w-xl mx-auto">
-          Start free with 5 generations per month. Upgrade to Maker or Pro when
-          your shop needs more.
-        </p>
-      </section>
+      </main>
 
-      {/* Pricing cards */}
-      <section className="max-w-5xl mx-auto px-4 pb-16">
-        <PricingCards />
-      </section>
-
-      {/* FAQ */}
-      <section className="max-w-2xl mx-auto px-4 pb-20">
-        <h2 className="text-2xl font-bold text-steel-100 text-center mb-8">
-          Frequently Asked Questions
-        </h2>
-        <div className="space-y-4">
-          {[
-            {
-              q: "What counts as a generation?",
-              a: "Each time you click 'Generate CAD Model' and the worker produces a STEP/STL file, that counts as one generation. Failed or errored generations do not count.",
-            },
-            {
-              q: "Can I cancel anytime?",
-              a: "Yes. Cancel from your account settings at any time. You'll keep access until the end of your billing period.",
-            },
-            {
-              q: "What part families are available on Free?",
-              a: "The Free plan includes spacer, l_bracket, and u_bracket. Maker and Pro unlock all 10 families including flat_bracket, standoff_block, adapter_bushing, and simple_jig.",
-            },
-            {
-              q: "Do you offer refunds?",
-              a: "Yes — if you're not satisfied within the first 7 days of a paid plan, contact us for a full refund.",
-            },
-            {
-              q: "Is there a team plan?",
-              a: "Team plans are coming soon. Contact us if you need multiple seats.",
-            },
-          ].map(({ q, a }) => (
-            <details
-              key={q}
-              className="card group cursor-pointer"
-            >
-              <summary className="font-medium text-steel-100 list-none flex items-center justify-between">
-                {q}
-                <span className="text-steel-500 group-open:rotate-180 transition-transform text-lg">▾</span>
-              </summary>
-              <p className="text-steel-400 text-sm mt-3 leading-relaxed">{a}</p>
-            </details>
-          ))}
-        </div>
-      </section>
-
-      {/* CTA */}
-      <section className="border-t border-steel-800 py-16 text-center px-4">
-        <h2 className="text-2xl font-bold text-steel-100 mb-4">
-          Ready to stop measuring twice and cutting once?
-        </h2>
-        <p className="text-steel-400 mb-8">
-          Join machinists who generate production-ready CAD in seconds.
-        </p>
-        <Link href="/signup" className="btn-primary text-base py-3 px-8 inline-block">
-          Start Free — No Credit Card Required
+      {/* Footer */}
+      <footer className="border-t border-steel-800 px-6 py-6 text-center text-steel-600 text-xs">
+        <Link href="/" className="hover:text-steel-400 transition-colors">
+          ← Back to AI4U Little Engineer
         </Link>
-      </section>
+      </footer>
     </div>
   );
 }

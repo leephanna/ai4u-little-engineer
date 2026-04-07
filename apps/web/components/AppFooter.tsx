@@ -20,11 +20,8 @@ export function AppFooter() {
           <Link href="/terms" className="hover:text-steel-400 transition-colors">
             Terms of Use
           </Link>
-          <Link href="/marketplace/license" className="hover:text-steel-400 transition-colors">
-            Marketplace License
-          </Link>
-          <Link href="/marketplace" className="hover:text-steel-400 transition-colors">
-            Marketplace
+          <Link href="/gallery" className="hover:text-steel-400 transition-colors">
+            Gallery
           </Link>
         </nav>
       </div>

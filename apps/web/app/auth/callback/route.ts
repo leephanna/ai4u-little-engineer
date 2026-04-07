@@ -4,7 +4,9 @@ import { createClient } from "@/lib/supabase/server";
 export async function GET(request: NextRequest) {
   const { searchParams, origin } = new URL(request.url);
   const code = searchParams.get("code");
-  const next = searchParams.get("next") ?? "/dashboard";
+  // Default post-auth destination is the canonical creation path.
+  // If a ?next= param is provided (e.g. from a protected page redirect), honour it.
+  const next = searchParams.get("next") ?? "/invent";
 
   if (code) {
     const supabase = await createClient();

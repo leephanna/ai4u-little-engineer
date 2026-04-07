@@ -17,7 +17,8 @@ import GoogleSignInButton from "@/components/auth/GoogleSignInButton";
 function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const redirectTo = searchParams.get("redirectTo") || searchParams.get("redirect") || "/dashboard";
+  // Default post-login destination is the canonical creation path.
+  const redirectTo = searchParams.get("redirectTo") || searchParams.get("redirect") || "/invent";
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
