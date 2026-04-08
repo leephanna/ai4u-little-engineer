@@ -117,6 +117,7 @@ export function runTruthGate(input: TruthGateInput): TruthGateResult {
     const knownFamilies = [
       "spacer", "flat_bracket", "l_bracket", "u_bracket", "hole_plate",
       "standoff_block", "cable_clip", "enclosure", "adapter_bushing", "simple_jig",
+      "gear", "propeller",
     ];
     return {
       verdict: "REJECT",

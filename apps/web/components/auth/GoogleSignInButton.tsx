@@ -7,8 +7,12 @@
  * Works for both new sign-up and returning sign-in — Google handles
  * the distinction transparently.
  *
+ * Graceful degradation: if the Google provider is not yet enabled in Supabase
+ * (returns "Unsupported provider" or similar), the button shows an actionable
+ * message instead of a raw error string.
+ *
  * Usage:
- *   <GoogleSignInButton redirectTo="/dashboard" />
+ *   <GoogleSignInButton redirectTo="/invent" />
  */
 import { useState } from "react";
 import { createClient } from "@/lib/supabase/client";
@@ -19,8 +23,27 @@ interface Props {
   className?: string;
 }
 
+/** Human-readable messages for known Supabase OAuth error codes. */
+function friendlyOAuthError(message: string): string {
+  const lower = message.toLowerCase();
+  if (
+    lower.includes("unsupported provider") ||
+    lower.includes("provider is not enabled") ||
+    lower.includes("provider not enabled")
+  ) {
+    return "Google sign-in is not yet configured. Please use email/password below, or contact the site owner.";
+  }
+  if (lower.includes("email already registered")) {
+    return "An account with this email already exists. Try signing in instead.";
+  }
+  if (lower.includes("popup_closed") || lower.includes("popup closed")) {
+    return "Sign-in window was closed. Please try again.";
+  }
+  return message;
+}
+
 export default function GoogleSignInButton({
-  redirectTo = "/dashboard",
+  redirectTo = "/invent",
   label = "Continue with Google",
   className,
 }: Props) {
@@ -37,7 +60,7 @@ export default function GoogleSignInButton({
         ? `${window.location.origin}/auth/callback?next=${encodeURIComponent(redirectTo)}`
         : `/auth/callback?next=${encodeURIComponent(redirectTo)}`;
 
-    const { error } = await supabase.auth.signInWithOAuth({
+    const { error: oauthError } = await supabase.auth.signInWithOAuth({
       provider: "google",
       options: {
         redirectTo: callbackUrl,
@@ -50,8 +73,8 @@ export default function GoogleSignInButton({
       },
     });
 
-    if (error) {
-      setError(error.message);
+    if (oauthError) {
+      setError(friendlyOAuthError(oauthError.message));
       setLoading(false);
     }
     // On success, Supabase redirects the browser to Google — no further action needed here.
@@ -97,7 +120,9 @@ export default function GoogleSignInButton({
         {loading ? "Redirecting to Google…" : label}
       </button>
       {error && (
-        <p className="mt-2 text-xs text-red-400 text-center">{error}</p>
+        <p className="mt-2 text-sm text-amber-600 text-center bg-amber-50 border border-amber-200 rounded-md px-3 py-2">
+          {error}
+        </p>
       )}
     </div>
   );

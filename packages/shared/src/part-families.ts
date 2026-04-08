@@ -29,7 +29,7 @@ export const MVP_PART_FAMILIES = [
 export type MvpPartFamily = (typeof MVP_PART_FAMILIES)[number];
 
 // ── All generators now implemented in V1 ────────────────────
-export const PARTIAL_PART_FAMILIES = [] as const;
+export const PARTIAL_PART_FAMILIES = ["gear", "propeller"] as const;
 
 export type PartialPartFamily = (typeof PARTIAL_PART_FAMILIES)[number];
 
@@ -52,6 +52,8 @@ export const PART_FAMILY_LABELS: Record<PartFamily, string> = {
   enclosure:       "Enclosure / Box",
   adapter_bushing: "Adapter Bushing",
   simple_jig:      "Simple Jig / Alignment Fixture",
+  gear:            "Spur Gear",
+  propeller:       "Propeller / Impeller",
 };
 
 export const PART_FAMILY_DESCRIPTIONS: Record<PartFamily, string> = {
@@ -75,6 +77,10 @@ export const PART_FAMILY_DESCRIPTIONS: Record<PartFamily, string> = {
     "Bushing or sleeve for adapting between different bore sizes or standards.",
   simple_jig:
     "Alignment fixture or jig for repeatable positioning during assembly or machining.",
+  gear:
+    "Spur gear for power transmission and motion control.",
+  propeller:
+    "Propeller or impeller for fluid movement and propulsion.",
 };
 
 /** Required dimension fields per family */
@@ -89,6 +95,8 @@ export const REQUIRED_DIMENSIONS: Record<PartFamily, string[]> = {
   enclosure:       ["inner_length", "inner_width", "inner_height", "wall_thickness"],
   adapter_bushing: ["outer_diameter", "inner_diameter", "length"],
   simple_jig:      ["length", "width", "height"],
+  gear:            ["module", "teeth", "thickness"],
+  propeller:       ["diameter", "pitch", "blades"],
 };
 
 export const VARIANT_TYPES = [

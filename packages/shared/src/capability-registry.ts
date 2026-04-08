@@ -24,7 +24,7 @@
  * eval suite (apps/cad-worker/eval/generators/).
  */
 
-import type { MvpPartFamily } from "./part-families";
+import type { PartFamily } from "./part-families";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
@@ -62,7 +62,7 @@ export interface QuestionStrategy {
 
 export interface CapabilityEntry {
   /** Unique identifier — matches the generator name in the CAD worker */
-  family: MvpPartFamily;
+  family: PartFamily;
   /** Human-readable label */
   label: string;
   /** One-sentence description shown in UI */
@@ -419,6 +419,68 @@ export const CAPABILITY_REGISTRY: CapabilityEntry[] = [
     reuse_eligible: true,
     degradation_policy: "reject",
     success_rate: 0.94,
+    usage_count: 0,
+  },
+  // ── 11. gear (experimental) ───────────────────────────────────────────────
+  {
+    family: "gear",
+    label: "Spur Gear",
+    description: "Spur gear for power transmission and motion control.",
+    route_type: "parametric",
+    object_class: "mechanical",
+    required_dimensions: [
+      { name: "module", unit: "mm", min: 0.5, max: 10, description: "Gear module (pitch diameter / teeth)" },
+      { name: "teeth", unit: "count", min: 8, max: 200, description: "Number of teeth" },
+      { name: "thickness", unit: "mm", min: 1, max: 100, description: "Gear thickness" },
+    ],
+    optional_dimensions: [
+      { name: "bore_diameter", unit: "mm", min: 0, max: 100, description: "Center bore diameter (0 for solid)" },
+    ],
+    validation_rules: [
+      { rule: "bore_diameter < (module * teeth) - 4", description: "Bore must be smaller than root diameter" },
+    ],
+    question_strategy: {
+      primary_question: "What are the specifications for the gear?",
+      dimension_order: ["module", "teeth", "thickness", "bore_diameter"],
+      example_values: { module: 1, teeth: 20, thickness: 5, bore_diameter: 5 },
+    },
+    generator_version: "v1",
+    maturity_level: "experimental",
+    demo_eligible: false,
+    reuse_eligible: false,
+    degradation_policy: "concept_only",
+    success_rate: 0.0,
+    usage_count: 0,
+  },
+  // ── 12. propeller (experimental) ──────────────────────────────────────────
+  {
+    family: "propeller",
+    label: "Propeller",
+    description: "Propeller or impeller for fluid movement and propulsion.",
+    route_type: "parametric",
+    object_class: "mechanical",
+    required_dimensions: [
+      { name: "diameter", unit: "mm", min: 10, max: 500, description: "Overall diameter" },
+      { name: "pitch", unit: "mm", min: 10, max: 500, description: "Pitch (distance per revolution)" },
+      { name: "blades", unit: "count", min: 2, max: 12, description: "Number of blades" },
+    ],
+    optional_dimensions: [
+      { name: "bore_diameter", unit: "mm", min: 0, max: 100, description: "Center bore diameter" },
+    ],
+    validation_rules: [
+      { rule: "bore_diameter < diameter * 0.5", description: "Bore must be smaller than half the diameter" },
+    ],
+    question_strategy: {
+      primary_question: "What are the specifications for the propeller?",
+      dimension_order: ["diameter", "pitch", "blades", "bore_diameter"],
+      example_values: { diameter: 100, pitch: 80, blades: 3, bore_diameter: 5 },
+    },
+    generator_version: "v1",
+    maturity_level: "experimental",
+    demo_eligible: false,
+    reuse_eligible: false,
+    degradation_policy: "concept_only",
+    success_rate: 0.0,
     usage_count: 0,
   },
 ];
