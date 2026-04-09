@@ -8,14 +8,18 @@ export async function GET(request: NextRequest) {
   // If a ?next= param is provided (e.g. from a protected page redirect), honour it.
   const next = searchParams.get("next") ?? "/invent";
 
+  // Prefer the canonical app URL so redirects always resolve to the production
+  // domain even when the callback arrives on a Vercel preview URL.
+  const appOrigin = process.env.NEXT_PUBLIC_APP_URL ?? origin;
+
   if (code) {
     const supabase = await createClient();
     const { error } = await supabase.auth.exchangeCodeForSession(code);
     if (!error) {
-      return NextResponse.redirect(`${origin}${next}`);
+      return NextResponse.redirect(`${appOrigin}${next}`);
     }
   }
 
   // Return to login on error
-  return NextResponse.redirect(`${origin}/login?error=auth_callback_failed`);
+  return NextResponse.redirect(`${appOrigin}/login?error=auth_callback_failed`);
 }

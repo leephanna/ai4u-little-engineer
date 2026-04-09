@@ -55,10 +55,13 @@ export default function GoogleSignInButton({
     setError(null);
 
     const supabase = createClient();
-    const callbackUrl =
-      typeof window !== "undefined"
-        ? `${window.location.origin}/auth/callback?next=${encodeURIComponent(redirectTo)}`
-        : `/auth/callback?next=${encodeURIComponent(redirectTo)}`;
+    // Use the canonical production URL from the env var so the redirectTo value
+    // is always in Supabase's allowed list, regardless of which Vercel preview
+    // URL the user arrived on.
+    const appUrl =
+      process.env.NEXT_PUBLIC_APP_URL ??
+      (typeof window !== "undefined" ? window.location.origin : "");
+    const callbackUrl = `${appUrl}/auth/callback?next=${encodeURIComponent(redirectTo)}`;
 
     const { error: oauthError } = await supabase.auth.signInWithOAuth({
       provider: "google",
