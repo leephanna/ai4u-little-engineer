@@ -1,23 +1,7 @@
 "use client";
 
-/**
- * GoogleSignInButton
- *
- * Triggers Google OAuth by redirecting directly to Supabase's /auth/v1/authorize
- * endpoint — bypassing the Supabase JS client OAuth helper entirely.
- *
- * Why: supabase.auth.signInWithOAuth() appends ?flowName=GeneralOAuthFlow to the
- * callback URL, producing a malformed redirect_uri that Google rejects with Error 400.
- * Building the URL manually sends the clean callback URL that matches Google's
- * Authorized Redirect URIs list exactly.
- *
- * Works for both new sign-up and returning sign-in — Google handles the distinction
- * transparently.
- *
- * Usage:
- *   <GoogleSignInButton redirectTo="/invent" />
- */
 import { useState } from "react";
+import { createClient } from "@/lib/supabase/client";
 
 interface Props {
   redirectTo?: string;
@@ -36,32 +20,25 @@ export default function GoogleSignInButton({
   async function handleGoogleSignIn() {
     setLoading(true);
     setError(null);
-
     try {
-      const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-      if (!supabaseUrl) {
-        throw new Error("NEXT_PUBLIC_SUPABASE_URL is not configured.");
-      }
-
-      // Use the canonical production URL so the redirect_to value always
-      // matches an entry in Supabase's allowed list, regardless of which
-      // Vercel preview URL the user arrived on.
+      const supabase = createClient();
       const appUrl =
         process.env.NEXT_PUBLIC_APP_URL ??
         (typeof window !== "undefined" ? window.location.origin : "");
-
-      const redirectTo_ = `${appUrl}/auth/callback?next=${encodeURIComponent(redirectTo)}`;
-
-      // Build the Supabase OAuth URL directly — no PKCE, no flowName suffix.
-      // This sends exactly: https://<project>.supabase.co/auth/v1/callback
-      // as the redirect_uri to Google, matching the Authorized Redirect URI.
-      const params = new URLSearchParams({
+      const { error: oauthError } = await supabase.auth.signInWithOAuth({
         provider: "google",
-        redirect_to: redirectTo_,
-        flow_type: "implicit",
+        options: {
+          redirectTo: `${appUrl}/auth/callback?next=${encodeURIComponent(redirectTo)}`,
+          queryParams: {
+            access_type: "offline",
+            prompt: "select_account",
+          },
+        },
       });
-
-      window.location.href = `${supabaseUrl}/auth/v1/authorize?${params.toString()}`;
+      if (oauthError) {
+        setError(oauthError.message);
+        setLoading(false);
+      }
     } catch (err: unknown) {
       const message =
         err instanceof Error ? err.message : "Sign-in failed. Please try again.";
