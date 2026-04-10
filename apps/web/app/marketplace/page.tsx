@@ -16,6 +16,8 @@ import { createServiceClient } from "@/lib/supabase/service";
 import { createClient } from "@/lib/supabase/server";
 import MarketplaceClient from "./MarketplaceClient";
 
+export const dynamic = 'force-dynamic';
+
 interface Project {
   id: string;
   title: string;

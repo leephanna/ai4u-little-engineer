@@ -6,6 +6,8 @@ import { createServiceClient } from "@/lib/supabase/service";
 import Link from "next/link";
 import { CapabilityAction } from "./CapabilityAction";
 
+export const dynamic = 'force-dynamic';
+
 export default async function CapabilitiesPage() {
   const supabase = createServiceClient();
   const { data: candidates } = await supabase

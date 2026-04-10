@@ -7,6 +7,8 @@
 import { createServiceClient } from "@/lib/supabase/service";
 import Link from "next/link";
 
+export const dynamic = 'force-dynamic';
+
 async function getIntelligenceSummary() {
   const supabase = createServiceClient();
   const [debates, tolerance, capabilities, prompts] = await Promise.all([

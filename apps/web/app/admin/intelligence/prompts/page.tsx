@@ -6,6 +6,8 @@ import { createServiceClient } from "@/lib/supabase/service";
 import Link from "next/link";
 import { PromptAction } from "./PromptAction";
 
+export const dynamic = 'force-dynamic';
+
 export default async function PromptsPage() {
   const supabase = createServiceClient();
   const { data: prompts } = await supabase

@@ -6,6 +6,8 @@ import { createServiceClient } from "@/lib/supabase/service";
 import Link from "next/link";
 import { ToleranceAction } from "./ToleranceAction";
 
+export const dynamic = 'force-dynamic';
+
 export default async function TolerancePage() {
   const supabase = createServiceClient();
   const { data: insights } = await supabase
