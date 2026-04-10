@@ -58,6 +58,7 @@ export default function GoogleSignInButton({
       const params = new URLSearchParams({
         provider: "google",
         redirect_to: redirectTo_,
+        flow_type: "implicit",
       });
 
       window.location.href = `${supabaseUrl}/auth/v1/authorize?${params.toString()}`;
