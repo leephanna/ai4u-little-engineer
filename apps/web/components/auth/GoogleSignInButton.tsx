@@ -3,43 +3,26 @@
 /**
  * GoogleSignInButton
  *
- * Triggers Supabase OAuth sign-in with Google provider.
- * Works for both new sign-up and returning sign-in — Google handles
- * the distinction transparently.
+ * Triggers Google OAuth by redirecting directly to Supabase's /auth/v1/authorize
+ * endpoint — bypassing the Supabase JS client OAuth helper entirely.
  *
- * Graceful degradation: if the Google provider is not yet enabled in Supabase
- * (returns "Unsupported provider" or similar), the button shows an actionable
- * message instead of a raw error string.
+ * Why: supabase.auth.signInWithOAuth() appends ?flowName=GeneralOAuthFlow to the
+ * callback URL, producing a malformed redirect_uri that Google rejects with Error 400.
+ * Building the URL manually sends the clean callback URL that matches Google's
+ * Authorized Redirect URIs list exactly.
+ *
+ * Works for both new sign-up and returning sign-in — Google handles the distinction
+ * transparently.
  *
  * Usage:
  *   <GoogleSignInButton redirectTo="/invent" />
  */
 import { useState } from "react";
-import { createClient } from "@/lib/supabase/client";
 
 interface Props {
   redirectTo?: string;
   label?: string;
   className?: string;
-}
-
-/** Human-readable messages for known Supabase OAuth error codes. */
-function friendlyOAuthError(message: string): string {
-  const lower = message.toLowerCase();
-  if (
-    lower.includes("unsupported provider") ||
-    lower.includes("provider is not enabled") ||
-    lower.includes("provider not enabled")
-  ) {
-    return "Google sign-in is not yet configured. Please use email/password below, or contact the site owner.";
-  }
-  if (lower.includes("email already registered")) {
-    return "An account with this email already exists. Try signing in instead.";
-  }
-  if (lower.includes("popup_closed") || lower.includes("popup closed")) {
-    return "Sign-in window was closed. Please try again.";
-  }
-  return message;
 }
 
 export default function GoogleSignInButton({
@@ -54,33 +37,36 @@ export default function GoogleSignInButton({
     setLoading(true);
     setError(null);
 
-    const supabase = createClient();
-    // Use the canonical production URL from the env var so the redirectTo value
-    // is always in Supabase's allowed list, regardless of which Vercel preview
-    // URL the user arrived on.
-    const appUrl =
-      process.env.NEXT_PUBLIC_APP_URL ??
-      (typeof window !== "undefined" ? window.location.origin : "");
-    const callbackUrl = `${appUrl}/auth/callback?next=${encodeURIComponent(redirectTo)}`;
+    try {
+      const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+      if (!supabaseUrl) {
+        throw new Error("NEXT_PUBLIC_SUPABASE_URL is not configured.");
+      }
 
-    const { error: oauthError } = await supabase.auth.signInWithOAuth({
-      provider: "google",
-      options: {
-        redirectTo: callbackUrl,
-        queryParams: {
-          // Request offline access to get a refresh token
-          access_type: "offline",
-          // Force account selection on every sign-in for clarity
-          prompt: "select_account",
-        },
-      },
-    });
+      // Use the canonical production URL so the redirect_to value always
+      // matches an entry in Supabase's allowed list, regardless of which
+      // Vercel preview URL the user arrived on.
+      const appUrl =
+        process.env.NEXT_PUBLIC_APP_URL ??
+        (typeof window !== "undefined" ? window.location.origin : "");
 
-    if (oauthError) {
-      setError(friendlyOAuthError(oauthError.message));
+      const redirectTo_ = `${appUrl}/auth/callback?next=${encodeURIComponent(redirectTo)}`;
+
+      // Build the Supabase OAuth URL directly — no PKCE, no flowName suffix.
+      // This sends exactly: https://<project>.supabase.co/auth/v1/callback
+      // as the redirect_uri to Google, matching the Authorized Redirect URI.
+      const params = new URLSearchParams({
+        provider: "google",
+        redirect_to: redirectTo_,
+      });
+
+      window.location.href = `${supabaseUrl}/auth/v1/authorize?${params.toString()}`;
+    } catch (err: unknown) {
+      const message =
+        err instanceof Error ? err.message : "Sign-in failed. Please try again.";
+      setError(message);
       setLoading(false);
     }
-    // On success, Supabase redirects the browser to Google — no further action needed here.
   }
 
   return (
