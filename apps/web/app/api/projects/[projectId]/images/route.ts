@@ -18,7 +18,6 @@ import { createClient } from "@/lib/supabase/server";
 import { createServiceClient } from "@/lib/supabase/service";
 import OpenAI from "openai";
 
-const openai = new OpenAI();
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Prompt builders
@@ -124,6 +123,7 @@ export async function POST(
         : buildContextPrompt(family, material);
 
     try {
+    const openai = new OpenAI();
       const response = await openai.images.generate({
         model: "dall-e-3",
         prompt,

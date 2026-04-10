@@ -23,7 +23,6 @@ import { createClient } from "@/lib/supabase/server";
 import { createServiceClient } from "@/lib/supabase/service";
 import OpenAI from "openai";
 
-const openai = new OpenAI();
 
 interface ClarifyBody {
   session_id: string;
@@ -95,6 +94,7 @@ Example questions to ask:
 
 export async function POST(req: NextRequest) {
   try {
+    const openai = new OpenAI();
     const supabase = await createClient();
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) {

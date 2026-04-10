@@ -32,7 +32,6 @@ import { createClient } from "@/lib/supabase/server";
 import { createServiceClient } from "@/lib/supabase/service";
 import OpenAI from "openai";
 
-const openai = new OpenAI();
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 type InterpretationMode =
@@ -199,6 +198,7 @@ export async function POST(req: NextRequest) {
   const startMs = Date.now();
 
   try {
+    const openai = new OpenAI();
     const body: RequestBody = await req.json();
     const {
       text = "",

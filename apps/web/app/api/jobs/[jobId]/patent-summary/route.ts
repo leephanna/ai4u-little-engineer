@@ -26,7 +26,6 @@ import { createClient } from "@/lib/supabase/server";
 import { createServiceClient } from "@/lib/supabase/service";
 import OpenAI from "openai";
 
-const openai = new OpenAI();
 
 const PATENT_SYSTEM_PROMPT = `You are a patent attorney specializing in mechanical engineering and 3D-printed devices.
 Your task is to generate a structured patent-ready technical summary for a 3D-printed mechanical part.
@@ -141,6 +140,7 @@ Quality Validation: ${vplContext}
 Generate the complete patent summary JSON as specified. Focus on the mechanical innovation and practical utility.`;
 
   try {
+    const openai = new OpenAI();
     const completion = await openai.chat.completions.create({
       model: "gpt-4.1-mini",
       messages: [

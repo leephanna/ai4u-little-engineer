@@ -14,7 +14,6 @@ import { createClient } from "@/lib/supabase/server";
 import { createServiceClient } from "@/lib/supabase/service";
 import OpenAI from "openai";
 
-const openai = new OpenAI();
 
 // Supported interpretation modes
 const INTERPRETATION_MODES = [
@@ -90,6 +89,7 @@ Rules:
 
 export async function POST(req: NextRequest) {
   try {
+    const openai = new OpenAI();
     const supabase = await createClient();
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) {
