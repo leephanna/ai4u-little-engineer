@@ -3,6 +3,11 @@
 import { useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 
+// Canonical production URL — never falls back to window.location.origin
+// so that redirectTo always matches the Supabase uri_allow_list entry.
+const APP_URL =
+  process.env.NEXT_PUBLIC_APP_URL ?? "https://ai4u-little-engineer-web.vercel.app";
+
 interface Props {
   redirectTo?: string;
   label?: string;
@@ -18,17 +23,18 @@ export default function GoogleSignInButton({
   const [error, setError] = useState<string | null>(null);
 
   async function handleGoogleSignIn() {
+    // Double-click / duplicate-submit guard
+    if (loading) return;
     setLoading(true);
     setError(null);
     try {
       const supabase = createClient();
-      const appUrl =
-        process.env.NEXT_PUBLIC_APP_URL ??
-        (typeof window !== "undefined" ? window.location.origin : "");
+      // Use the standard Supabase OAuth initiation — no manual URL assembly.
+      // redirectTo must exactly match an entry in Supabase uri_allow_list.
       const { error: oauthError } = await supabase.auth.signInWithOAuth({
         provider: "google",
         options: {
-          redirectTo: `${appUrl}/auth/callback?next=${encodeURIComponent(redirectTo)}`,
+          redirectTo: `${APP_URL}/auth/callback?next=${encodeURIComponent(redirectTo)}`,
           queryParams: {
             access_type: "offline",
             prompt: "select_account",
@@ -53,6 +59,7 @@ export default function GoogleSignInButton({
         type="button"
         onClick={handleGoogleSignIn}
         disabled={loading}
+        aria-busy={loading}
         className={
           className ??
           "w-full flex items-center justify-center gap-3 px-4 py-2.5 rounded-lg bg-white hover:bg-gray-50 border border-gray-300 text-gray-700 font-medium text-sm transition-colors disabled:opacity-60 disabled:cursor-not-allowed"

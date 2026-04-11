@@ -12,12 +12,34 @@
  * This page is intentionally lightweight and mostly static.
  */
 
-import { useState } from "react";
+import { useState, Suspense } from "react";
+import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import MagicLinkForm from "@/components/auth/MagicLinkForm";
 import GoogleSignInButton from "@/components/auth/GoogleSignInButton";
 
-export default function GatewayPage() {
+// Map known error codes to human-readable messages
+const AUTH_ERROR_MESSAGES: Record<string, string> = {
+  bad_oauth_callback: "Google sign-in failed: the OAuth state was lost. Please try again.",
+  session_exchange_failed: "Sign-in failed: could not complete the session. Please try again.",
+  unknown: "Sign-in encountered an unexpected error. Please try again.",
+};
+
+function AuthErrorBanner() {
+  const params = useSearchParams();
+  const authError = params.get("auth_error");
+  if (!authError) return null;
+  const message =
+    AUTH_ERROR_MESSAGES[authError] ??
+    `Sign-in error (${authError}). Please try again.`;
+  return (
+    <div className="rounded-lg bg-amber-900/40 border border-amber-700 px-4 py-3 text-amber-300 text-sm text-center">
+      {message}
+    </div>
+  );
+}
+
+function GatewayContent() {
   const [showMagicLink, setShowMagicLink] = useState(false);
 
   return (
@@ -72,6 +94,11 @@ export default function GatewayPage() {
               production-ready 3D model you can print in minutes.
             </p>
           </div>
+
+          {/* Auth error banner — shown when redirected back from callback with error */}
+          <Suspense fallback={null}>
+            <AuthErrorBanner />
+          </Suspense>
 
           {/* Primary CTA */}
           <div className="space-y-3">
@@ -179,5 +206,13 @@ export default function GatewayPage() {
         </p>
       </footer>
     </div>
+  );
+}
+
+export default function GatewayPage() {
+  return (
+    <Suspense fallback={null}>
+      <GatewayContent />
+    </Suspense>
   );
 }

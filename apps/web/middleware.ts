@@ -63,6 +63,14 @@ export async function middleware(request: NextRequest) {
 
 export const config = {
   matcher: [
-    "/((?!_next/static|_next/image|favicon.ico|manifest.json|icons|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
+    /*
+     * Exclude:
+     * - _next/static, _next/image, favicon, icons, images (Next.js internals)
+     * - /auth/callback  — must be excluded so middleware does NOT run getUser()
+     *   during the OAuth code exchange. Running getUser() before the session
+     *   cookie is set can corrupt the PKCE state and cause redirect loops.
+     * - /little-engineer — public gateway page, must always be reachable.
+     */
+    "/((?!_next/static|_next/image|favicon.ico|manifest.json|icons|auth/callback|little-engineer|.*\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
   ],
 };
