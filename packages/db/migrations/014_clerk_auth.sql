@@ -13,6 +13,12 @@
 -- but will be NULL for all new Clerk-authenticated records.
 -- ─────────────────────────────────────────────────────────────────────────────
 
+-- profiles table (CRITICAL: used by admin role checks in admin/layout.tsx and all admin intelligence routes)
+ALTER TABLE public.profiles
+  ADD COLUMN IF NOT EXISTS clerk_user_id TEXT;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_profiles_clerk_user_id
+  ON public.profiles(clerk_user_id);
+
 -- sessions table
 ALTER TABLE public.sessions
   ADD COLUMN IF NOT EXISTS clerk_user_id TEXT;
