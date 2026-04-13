@@ -9,6 +9,7 @@ import { SystemStatusBar } from "@/components/SystemStatusBar";
 import type { Job } from "@/lib/types";
 import { JOB_STATUS_COLORS, JOB_STATUS_LABELS } from "@/lib/types";
 import { shouldBypassLimits } from "@/lib/access-policy";
+import { getAuthUser } from "@/lib/auth";
 
 const FAMILY_EMOJI: Record<string, string> = {
   spacer: "⭕",
@@ -98,16 +99,13 @@ function JobCard({ job }: { job: JobWithEstimate }) {
 
 export default async function DashboardPage() {
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  if (!user) redirect("/login");
+    const user = await getAuthUser();
+  if (!user) redirect("/sign-in");
 
   const { data: jobs, error } = await supabase
     .from("jobs")
     .select("*")
-    .eq("user_id", user.id)
+    .eq("clerk_user_id", user.id)
     .order("created_at", { ascending: false })
     .limit(50);
 

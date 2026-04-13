@@ -8,15 +8,12 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
+import { createServiceClient } from "@/lib/supabase/service";
 import { getStripe, getStripePriceId, PLANS, type PlanId } from "@/lib/stripe/config";
+import { getAuthUser } from "@/lib/auth";
 
 export async function POST(req: NextRequest) {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
+  const user = await getAuthUser();
   if (!user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
@@ -49,27 +46,28 @@ export async function POST(req: NextRequest) {
 
   try {
     const stripe = getStripe();
+    const supabase = createServiceClient();
 
     // Look up or create Stripe customer for this user
     const { data: profile } = await supabase
       .from("profiles")
       .select("stripe_customer_id")
-      .eq("id", user.id)
+      .eq("clerk_user_id", user.id)
       .single();
 
     let customerId: string | undefined = profile?.stripe_customer_id ?? undefined;
 
     if (!customerId) {
       const customer = await stripe.customers.create({
-        email: user.email,
-        metadata: { supabase_user_id: user.id },
+        email: user.email ?? undefined,
+        metadata: { clerk_user_id: user.id },
       });
       customerId = customer.id;
 
       // Persist the customer ID
       await supabase
         .from("profiles")
-        .upsert({ id: user.id, stripe_customer_id: customerId });
+        .upsert({ clerk_user_id: user.id, stripe_customer_id: customerId });
     }
 
     const session = await stripe.checkout.sessions.create({
@@ -80,11 +78,11 @@ export async function POST(req: NextRequest) {
       success_url: `${origin}/billing/success?session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${origin}/pricing`,
       metadata: {
-        supabase_user_id: user.id,
+        clerk_user_id: user.id,
         plan,
       },
       subscription_data: {
-        metadata: { supabase_user_id: user.id, plan },
+        metadata: { clerk_user_id: user.id, plan },
       },
     });
 

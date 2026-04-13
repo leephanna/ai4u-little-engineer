@@ -8,6 +8,7 @@
  */
 import { NextRequest, NextResponse } from "next/server";
 import { createClient as createSupabaseClient } from "@supabase/supabase-js";
+import { getAuthUser } from "@/lib/auth";
 
 const SIGNED_URL_EXPIRY_SECONDS = 3600; // 1 hour
 
@@ -24,7 +25,7 @@ export async function GET(request: NextRequest) {
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
       { global: { headers: { Authorization: `Bearer ${token}` } } }
     );
-    const { data: { user } } = await supabase.auth.getUser(token);
+        const user = await getAuthUser();
     if (!user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
@@ -48,7 +49,7 @@ export async function GET(request: NextRequest) {
       .from("jobs")
       .select("*")
       .eq("id", jobId)
-      .eq("user_id", user.id)
+      .eq("clerk_user_id", user.id)
       .single();
 
     if (jobErr || !job) {

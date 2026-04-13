@@ -13,6 +13,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 import UniversalCreatorFlow from "@/components/intake/UniversalCreatorFlow";
+import { getAuthUser } from "@/lib/auth";
 
 export const metadata = {
   title: "Invent a Design | Little Engineer",
@@ -21,10 +22,7 @@ export const metadata = {
 
 export default async function InventPage() {
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
+    const user = await getAuthUser();
   if (!user) {
     redirect("/auth/login?redirect=/invent");
   }

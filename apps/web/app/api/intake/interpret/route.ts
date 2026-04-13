@@ -13,6 +13,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createServiceClient } from "@/lib/supabase/service";
 import OpenAI from "openai";
+import { getAuthUser } from "@/lib/auth";
 
 
 // Supported interpretation modes
@@ -91,7 +92,7 @@ export async function POST(req: NextRequest) {
   try {
     const openai = new OpenAI();
     const supabase = await createClient();
-    const { data: { user } } = await supabase.auth.getUser();
+        const user = await getAuthUser();
     if (!user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
@@ -211,7 +212,7 @@ export async function POST(req: NextRequest) {
       const { data: newSession } = await serviceSupabase
         .from("intake_sessions")
         .insert({
-          user_id: user.id,
+          clerk_user_id: user.id,
           mode: parsed.mode,
           family_candidate: parsed.family_candidate ?? null,
           extracted_dimensions: parsed.extracted_dimensions ?? {},

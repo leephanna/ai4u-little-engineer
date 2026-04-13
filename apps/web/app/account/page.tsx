@@ -13,6 +13,7 @@ import Link from "next/link";
 import { PLANS, type PlanId } from "@/lib/stripe/config";
 import { ManageBillingButton } from "@/components/billing/ManageBillingButton";
 import { shouldBypassLimits } from "@/lib/access-policy";
+import { getAuthUser } from "@/lib/auth";
 
 export const metadata = {
   title: "Account — AI4U Little Engineer",
@@ -39,11 +40,8 @@ function PlanBadge({ status }: { status: string | null }) {
 
 export default async function AccountPage() {
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  if (!user) redirect("/login");
+    const user = await getAuthUser();
+  if (!user) redirect("/sign-in");
 
   const { data: profile } = await supabase
     .from("profiles")

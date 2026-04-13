@@ -11,6 +11,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { createServiceClient } from "@/lib/supabase/service";
 import { redirect } from "next/navigation";
+import { getAuthUser } from "@/lib/auth";
 
 interface DaedalusReceipt {
   id: string;
@@ -52,8 +53,8 @@ export default async function DaedalusDashboardPage({
 }) {
   // Auth check
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) redirect("/login");
+    const user = await getAuthUser();
+  if (!user) redirect("/sign-in");
 
   // Operator check
   const serviceSupabase = createServiceClient();

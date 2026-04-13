@@ -8,6 +8,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createServiceClient } from "@/lib/supabase/service";
+import { getAuthUser } from "@/lib/auth";
 
 interface UploadBody {
   session_id: string;
@@ -22,7 +23,7 @@ interface UploadBody {
 export async function POST(req: NextRequest) {
   try {
     const supabase = await createClient();
-    const { data: { user } } = await supabase.auth.getUser();
+        const user = await getAuthUser();
     if (!user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
@@ -41,7 +42,7 @@ export async function POST(req: NextRequest) {
       .from("intake_sessions")
       .select("id")
       .eq("id", session_id)
-      .eq("user_id", user.id)
+      .eq("clerk_user_id", user.id)
       .single();
 
     if (!session) {
@@ -51,7 +52,7 @@ export async function POST(req: NextRequest) {
     // Insert file records
     const records = files.map((f) => ({
       session_id,
-      user_id: user.id,
+      clerk_user_id: user.id,
       file_name: f.name,
       file_type: f.type,
       file_size_bytes: f.size,

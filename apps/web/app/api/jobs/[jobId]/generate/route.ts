@@ -15,8 +15,8 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { createClient, createServiceClient } from "@/lib/supabase/server";
-import { createClient as createSupabaseClient } from "@supabase/supabase-js";
+import { createServiceClient } from "@/lib/supabase/service";
+import { getAuthUser } from "@/lib/auth";
 import { tasks } from "@trigger.dev/sdk/v3";
 import { checkGenerationAllowed, type PlanId } from "@/lib/stripe/config";
 import { shouldBypassLimits } from "@/lib/access-policy";
@@ -34,27 +34,8 @@ export async function POST(
   try {
     const { jobId } = await params;
 
-    // Support both SSR cookie auth (browser) and Bearer token auth (API clients)
-    const authHeader = request.headers.get("authorization");
-    let supabase: Awaited<ReturnType<typeof createClient>>;
-    let user: { id: string; email?: string } | null = null;
-
-    if (authHeader?.startsWith("Bearer ")) {
-      const token = authHeader.slice(7);
-      const anonClient = createSupabaseClient(
-        process.env.NEXT_PUBLIC_SUPABASE_URL!,
-        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-        { global: { headers: { Authorization: `Bearer ${token}` } } }
-      );
-      const { data } = await anonClient.auth.getUser(token);
-      user = data.user;
-      supabase = anonClient as unknown as Awaited<ReturnType<typeof createClient>>;
-    } else {
-      supabase = await createClient();
-      const { data } = await supabase.auth.getUser();
-      user = data.user;
-    }
-
+    // Clerk auth — handles both web sessions and Bearer token (mobile)
+    const user = await getAuthUser();
     if (!user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
@@ -107,11 +88,12 @@ export async function POST(
     }
 
     // Verify job ownership and status
-    const { data: job, error: jobError } = await supabase
+    const serviceSupabaseDb = createServiceClient();
+    const { data: job, error: jobError } = await serviceSupabaseDb
       .from("jobs")
       .select("id, status, user_id, latest_spec_version")
       .eq("id", jobId)
-      .eq("user_id", user.id)
+      .eq("clerk_user_id", user.id)
       .single();
 
     if (jobError || !job) {
@@ -141,7 +123,7 @@ export async function POST(
     }
 
     // Verify spec belongs to this job
-    const { data: spec, error: specError } = await supabase
+    const { data: spec, error: specError } = await serviceSupabaseDb
       .from("part_specs")
       .select("id, family")
       .eq("id", part_spec_id)

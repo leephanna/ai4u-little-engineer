@@ -10,6 +10,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createServiceClient } from "@/lib/supabase/service";
+import { getAuthUser } from "@/lib/auth";
 
 export async function GET(
   _request: NextRequest,
@@ -20,12 +21,8 @@ export async function GET(
     const supabase = await createClient();
     const serviceSupabase = createServiceClient();
 
-    const {
-      data: { user },
-      error: authError,
-    } = await supabase.auth.getUser();
-
-    if (authError || !user) {
+        const user = await getAuthUser();
+    if (!user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
@@ -33,7 +30,7 @@ export async function GET(
       .from("jobs")
       .select("id, status, latest_run_id, updated_at")
       .eq("id", jobId)
-      .eq("user_id", user.id)
+      .eq("clerk_user_id", user.id)
       .single();
 
     if (error || !job) {

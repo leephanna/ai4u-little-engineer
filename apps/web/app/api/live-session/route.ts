@@ -29,6 +29,7 @@ import { createClient } from "@/lib/supabase/server";
 import OpenAI from "openai";
 import { geminiLiveTurn, isGeminiEnabled } from "./gemini-live";
 import { ORCHESTRATION_SYSTEM_PROMPT } from "@ai4u/shared/src/prompts/system-prompt";
+import { getAuthUser } from "@/lib/auth";
 
 // Compact voice-turn JSON wrapper for the OpenAI path
 const OPENAI_VOICE_PROMPT = `${ORCHESTRATION_SYSTEM_PROMPT}
@@ -50,12 +51,8 @@ export async function POST(request: NextRequest) {
 
   try {
     const supabase = await createClient();
-    const {
-      data: { user },
-      error: authError,
-    } = await supabase.auth.getUser();
-
-    if (authError || !user) {
+        const user = await getAuthUser();
+    if (!user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
@@ -74,7 +71,7 @@ export async function POST(request: NextRequest) {
       .from("sessions")
       .select("id")
       .eq("id", session_id)
-      .eq("user_id", user.id)
+      .eq("clerk_user_id", user.id)
       .single();
 
     if (sessionError || !sessionRow) {
@@ -231,7 +228,7 @@ export async function POST(request: NextRequest) {
       const { data: newJob, error: jobError } = await supabase
         .from("jobs")
         .insert({
-          user_id: user.id,
+          clerk_user_id: user.id,
           session_id,
           title: userTranscript.slice(0, 100),
           status: "clarifying",

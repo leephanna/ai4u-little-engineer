@@ -33,6 +33,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createServiceClient } from "@/lib/supabase/service";
 import { shouldBypassLimits } from "@/lib/access-policy";
 import { runTruthGate, formatTruthGateReceipt } from "@/lib/truth-gate";
+import { getAuthUser } from "@/lib/auth";
 
 // ── Scale → parametric dimensions mapping ────────────────────────────────────
 // Track 1 fix: remapped from standoff_block (rectangular block) to spacer
@@ -95,9 +96,9 @@ export async function POST(req: NextRequest) {
 
     // ── Auth check ──────────────────────────────────────────────
     const supabase = await createClient();
-    const { data: { user }, error: authError } = await supabase.auth.getUser();
-    if (authError || !user) {
-      return NextResponse.json({ error: "Authentication required" }, { status: 401 });
+        const user = await getAuthUser();
+    if (!user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
     const serviceSupabase = createServiceClient();
@@ -162,7 +163,7 @@ export async function POST(req: NextRequest) {
     // sessions table columns: id, user_id, device_id, started_at, ended_at, transcript_summary
     const { data: session, error: sessionError } = await serviceSupabase
       .from("sessions")
-      .insert({ user_id: user.id })
+      .insert({ clerk_user_id: user.id })
       .select("id")
       .single();
     if (sessionError || !session) {
@@ -179,7 +180,7 @@ export async function POST(req: NextRequest) {
     const { data: job, error: jobError } = await serviceSupabase
       .from("jobs")
       .insert({
-        user_id: user.id,
+        clerk_user_id: user.id,
         session_id: session.id,
         status: "draft",
         title: `Artemis II Rocket — ${scaleConfig.label}`,
@@ -297,7 +298,7 @@ export async function POST(req: NextRequest) {
     const { data: inventionRecord } = await serviceSupabase
       .from("invention_requests")
       .insert({
-        user_id: user.id,
+        clerk_user_id: user.id,
         problem_text: problemText,
         family: scaleConfig.family,
         parameters: scaleConfig.parameters,
@@ -315,7 +316,7 @@ export async function POST(req: NextRequest) {
       gate: "artemis_demo_generation",
       timestamp: new Date().toISOString(),
       elapsed_ms: elapsedMs,
-      inputs: { scale, material, quality, user_id: user.id },
+      inputs: { scale, material, quality, clerk_user_id: user.id },
       interpretation: {
         mode: "artemis_demo",
         family_mapped: scaleConfig.family,

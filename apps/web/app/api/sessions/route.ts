@@ -15,17 +15,14 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { getAuthUser } from "@/lib/auth";
 
 export async function POST(_request: NextRequest) {
   try {
     const supabase = await createClient();
 
-    const {
-      data: { user },
-      error: authError,
-    } = await supabase.auth.getUser();
-
-    if (authError || !user) {
+        const user = await getAuthUser();
+    if (!user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
@@ -33,7 +30,7 @@ export async function POST(_request: NextRequest) {
     const { data: session, error: sessionError } = await supabase
       .from("sessions")
       .insert({
-        user_id: user.id,
+        clerk_user_id: user.id,
         started_at: new Date().toISOString(),
       })
       .select("id")
@@ -67,12 +64,8 @@ export async function PATCH(request: NextRequest) {
   try {
     const supabase = await createClient();
 
-    const {
-      data: { user },
-      error: authError,
-    } = await supabase.auth.getUser();
-
-    if (authError || !user) {
+        const user = await getAuthUser();
+    if (!user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
@@ -91,7 +84,7 @@ export async function PATCH(request: NextRequest) {
       .from("sessions")
       .update({ ended_at: new Date().toISOString() })
       .eq("id", session_id)
-      .eq("user_id", user.id);
+      .eq("clerk_user_id", user.id);
 
     if (error) {
       console.error("Failed to close session:", error);

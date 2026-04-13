@@ -15,6 +15,7 @@
 import { createServiceClient } from "@/lib/supabase/service";
 import { createClient } from "@/lib/supabase/server";
 import MarketplaceClient from "./MarketplaceClient";
+import { getAuthUser } from "@/lib/auth";
 
 export const dynamic = 'force-dynamic';
 
@@ -50,9 +51,7 @@ export default async function MarketplacePage() {
   const supabase = await createClient();
 
   // Get current user (optional — marketplace is public)
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getAuthUser();
 
   // Fetch top 50 public projects sorted by success_score.
   // Trust Policy Gate: only show designs where marketplace_allowed = true.

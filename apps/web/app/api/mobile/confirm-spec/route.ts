@@ -16,6 +16,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient as createSupabaseClient } from "@supabase/supabase-js";
 import { MVP_PART_FAMILIES, REQUIRED_DIMENSIONS } from "@ai4u/shared";
+import { getAuthUser } from "@/lib/auth";
 
 function getServiceClient() {
   return createSupabaseClient(
@@ -99,7 +100,7 @@ export async function POST(request: NextRequest) {
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
       { global: { headers: { Authorization: `Bearer ${token}` } } }
     );
-    const { data: { user } } = await supabase.auth.getUser(token);
+        const user = await getAuthUser();
     if (!user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
@@ -157,7 +158,7 @@ export async function POST(request: NextRequest) {
     const { data: job, error: jobErr } = await serviceClient
       .from("jobs")
       .insert({
-        user_id: user.id,
+        clerk_user_id: user.id,
         status: "draft",
         title: `${spec.family.replace(/_/g, " ")} — mobile`,
         source: "mobile",
@@ -178,7 +179,7 @@ export async function POST(request: NextRequest) {
       .from("part_specs")
       .insert({
         job_id: job.id,
-        user_id: user.id,
+        clerk_user_id: user.id,
         family: spec.family,
         dimensions_json: spec.dimensions,
         units: spec.units || "mm",
@@ -201,7 +202,7 @@ export async function POST(request: NextRequest) {
       job.id,
       "confirm",
       {
-        user_id: user.id,
+        clerk_user_id: user.id,
         family: spec.family,
         dimension_count: Object.keys(spec.dimensions ?? {}).length,
         units: spec.units ?? "mm",

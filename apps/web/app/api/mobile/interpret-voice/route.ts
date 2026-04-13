@@ -15,6 +15,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import OpenAI from "openai";
 import { createClient as createSupabaseClient } from "@supabase/supabase-js";
+import { getAuthUser } from "@/lib/auth";
 import {
   MVP_PART_FAMILIES,
   REQUIRED_DIMENSIONS,
@@ -97,7 +98,7 @@ export async function POST(request: NextRequest) {
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
       { global: { headers: { Authorization: `Bearer ${token}` } } }
     );
-    const { data: { user } } = await supabase.auth.getUser(token);
+        const user = await getAuthUser();
     if (!user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }

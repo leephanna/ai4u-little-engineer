@@ -9,6 +9,7 @@ import { Suspense } from "react";
 import Link from "next/link";
 import { createServiceClient } from "@/lib/supabase/service";
 import { createClient } from "@/lib/supabase/server";
+import { getAuthUser } from "@/lib/auth";
 
 interface Props {
   searchParams: Promise<{ session_id?: string; project_id?: string }>;
@@ -28,7 +29,7 @@ async function SuccessContent({ sessionId, projectId }: { sessionId?: string; pr
 
   const serviceSupabase = createServiceClient();
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await getAuthUser();
 
   const { data: project } = await serviceSupabase
     .from("projects")

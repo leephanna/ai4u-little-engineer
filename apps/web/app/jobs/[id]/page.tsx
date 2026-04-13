@@ -38,6 +38,7 @@ import { BrandSignatureBlock } from "@/components/BrandSignatureBlock";
 import { JobPreviewPanel } from "@/components/jobs/JobPreviewPanel";
 import { JobLiveHydration } from "@/components/jobs/JobLiveHydration";
 import { JobProgressBanner } from "@/components/jobs/JobProgressBanner";
+import { getAuthUser } from "@/lib/auth";
 
 // Ensure the page is always dynamically rendered (no stale static cache)
 export const dynamic = "force-dynamic";
@@ -50,18 +51,15 @@ export default async function JobDetailPage({ params }: PageProps) {
   const { id } = await params;
   const supabase = await createClient();
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  if (!user) redirect("/login");
+    const user = await getAuthUser();
+  if (!user) redirect("/sign-in");
 
   // Fetch job
   const { data: job, error: jobError } = await supabase
     .from("jobs")
     .select("*")
     .eq("id", id)
-    .eq("user_id", user.id)
+    .eq("clerk_user_id", user.id)
     .single();
 
   if (jobError || !job) notFound();

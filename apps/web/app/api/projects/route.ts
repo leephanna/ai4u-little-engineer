@@ -17,13 +17,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createServiceClient } from "@/lib/supabase/service";
+import { getAuthUser } from "@/lib/auth";
 
 export async function POST(req: NextRequest) {
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    const user = await getAuthUser();
+  if (!user) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
 
   let body: { job_id: string; title: string; description?: string };
   try {
@@ -42,7 +44,7 @@ export async function POST(req: NextRequest) {
     .from("jobs")
     .select("id, user_id, selected_family, final_spec, status")
     .eq("id", job_id)
-    .eq("user_id", user.id)
+    .eq("clerk_user_id", user.id)
     .single();
 
   if (!job) return NextResponse.json({ error: "Job not found" }, { status: 404 });

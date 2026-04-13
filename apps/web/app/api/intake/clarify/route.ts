@@ -22,6 +22,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createServiceClient } from "@/lib/supabase/service";
 import OpenAI from "openai";
+import { getAuthUser } from "@/lib/auth";
 
 
 interface ClarifyBody {
@@ -96,7 +97,7 @@ export async function POST(req: NextRequest) {
   try {
     const openai = new OpenAI();
     const supabase = await createClient();
-    const { data: { user } } = await supabase.auth.getUser();
+        const user = await getAuthUser();
     if (!user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
@@ -115,7 +116,7 @@ export async function POST(req: NextRequest) {
       .from("intake_sessions")
       .select("*")
       .eq("id", session_id)
-      .eq("user_id", user.id)
+      .eq("clerk_user_id", user.id)
       .single();
 
     if (!session) {

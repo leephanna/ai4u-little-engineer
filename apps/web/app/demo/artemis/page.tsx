@@ -13,6 +13,7 @@ import { redirect } from "next/navigation";
 import ArtemisIIDemoCard from "@/components/intake/ArtemisIIDemoCard";
 import BrandSignatureBlock from "@/components/BrandSignatureBlock";
 import AppFooter from "@/components/AppFooter";
+import { getAuthUser } from "@/lib/auth";
 
 export const metadata = {
   title: "Artemis II Launch Pad Demo | AI4U Little Engineer",
@@ -22,10 +23,7 @@ export const metadata = {
 
 export default async function ArtemisDemoPage() {
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
+    const user = await getAuthUser();
   if (!user) {
     redirect("/login?redirect=/demo/artemis");
   }

@@ -25,6 +25,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createServiceClient } from "@/lib/supabase/service";
 import OpenAI from "openai";
+import { getAuthUser } from "@/lib/auth";
 
 
 const PATENT_SYSTEM_PROMPT = `You are a patent attorney specializing in mechanical engineering and 3D-printed devices.
@@ -63,7 +64,7 @@ export async function POST(
   const serviceSupabase = createServiceClient();
 
   // Auth check
-  const { data: { user } } = await supabase.auth.getUser();
+    const user = await getAuthUser();
   if (!user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
@@ -197,7 +198,7 @@ export async function GET(
   const { jobId } = await params;
   const supabase = await createClient();
 
-  const { data: { user } } = await supabase.auth.getUser();
+    const user = await getAuthUser();
   if (!user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }

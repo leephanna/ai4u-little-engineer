@@ -13,6 +13,7 @@ import { createServiceClient } from "@/lib/supabase/service";
 import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 import Link from "next/link";
+import { getAuthUser } from "@/lib/auth";
 
 interface VplTest {
   id: string;
@@ -74,10 +75,8 @@ const PRIORITY_COLORS: Record<string, string> = {
 
 export default async function AdminVplPage() {
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) redirect("/login");
+    const user = await getAuthUser();
+  if (!user) redirect("/sign-in");
 
   // Check admin role
   const serviceSupabase = createServiceClient();

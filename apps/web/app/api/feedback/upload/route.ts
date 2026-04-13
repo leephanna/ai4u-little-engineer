@@ -17,6 +17,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createServiceClient } from "@/lib/supabase/service";
 import { tasks } from "@trigger.dev/sdk/v3";
+import { getAuthUser } from "@/lib/auth";
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
 const ALLOWED_TYPES = ["image/jpeg", "image/png", "image/webp"];
@@ -25,9 +26,7 @@ const BUCKET = "print-feedback";
 export async function POST(req: NextRequest) {
   // Auth check
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+    const user = await getAuthUser();
   if (!user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
@@ -66,7 +65,7 @@ export async function POST(req: NextRequest) {
     .from("print_feedback")
     .select("id, user_id, job_id")
     .eq("id", feedbackId)
-    .eq("user_id", user.id)
+    .eq("clerk_user_id", user.id)
     .single();
 
   if (!feedbackRow) {
@@ -116,7 +115,7 @@ export async function POST(req: NextRequest) {
     await tasks.trigger("analyze-print-feedback", {
       feedback_id: feedbackId,
       job_id: jobId,
-      user_id: user.id,
+      clerk_user_id: user.id,
       image_path: storagePath,
       image_url: publicUrl,
     });

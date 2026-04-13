@@ -29,6 +29,7 @@ import {
   type MvpPartFamily,
 } from "@ai4u/shared";
 import { runTruthGate, formatTruthGateReceipt } from "@/lib/truth-gate";
+import { getAuthUser } from "@/lib/auth";
 
 // ─────────────────────────────────────────────────────────────
 // LLM Invention Prompt
@@ -131,11 +132,8 @@ export async function POST(request: NextRequest) {
     const serviceSupabase = createServiceClient();
 
     // Auth check
-    const {
-      data: { user },
-      error: authError,
-    } = await supabase.auth.getUser();
-    if (authError || !user) {
+        const user = await getAuthUser();
+    if (!user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
@@ -230,7 +228,7 @@ export async function POST(request: NextRequest) {
     if (truthGateResult.verdict === "REJECT" || truthGateResult.verdict === "CLARIFY") {
       // Log the rejected invention
       await serviceSupabase.from("invention_requests").insert({
-        user_id: user.id,
+        clerk_user_id: user.id,
         problem_text: problemText,
         family: inventionResult.family ?? null,
         parameters: inventionResult.parameters ?? {},
@@ -261,7 +259,7 @@ export async function POST(request: NextRequest) {
     // Create a session
     const { data: session, error: sessionError } = await serviceSupabase
       .from("sessions")
-      .insert({ user_id: user.id, started_at: new Date().toISOString() })
+      .insert({ clerk_user_id: user.id, started_at: new Date().toISOString() })
       .select("id")
       .single();
 
@@ -274,7 +272,7 @@ export async function POST(request: NextRequest) {
     const { data: job, error: jobError } = await serviceSupabase
       .from("jobs")
       .insert({
-        user_id: user.id,
+        clerk_user_id: user.id,
         session_id: session.id,
         status: "draft",
         title: `Invention: ${problemText.slice(0, 60)}`,
@@ -403,7 +401,7 @@ export async function POST(request: NextRequest) {
     const { data: inventionRecord } = await serviceSupabase
       .from("invention_requests")
       .insert({
-        user_id: user.id,
+        clerk_user_id: user.id,
         problem_text: problemText,
         family: inventionResult.family,
         parameters: inventionResult.parameters,

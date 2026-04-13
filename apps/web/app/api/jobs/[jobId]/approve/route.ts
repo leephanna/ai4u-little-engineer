@@ -5,6 +5,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { getAuthUser } from "@/lib/auth";
 
 interface ApproveBody {
   cad_run_id: string;
@@ -20,10 +21,7 @@ export async function POST(
     const { jobId } = await params;
     const supabase = await createClient();
 
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-
+        const user = await getAuthUser();
     if (!user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
@@ -33,7 +31,7 @@ export async function POST(
       .from("jobs")
       .select("id, status, user_id")
       .eq("id", jobId)
-      .eq("user_id", user.id)
+      .eq("clerk_user_id", user.id)
       .single();
 
     if (jobError || !job) {

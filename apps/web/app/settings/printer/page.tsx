@@ -1,19 +1,20 @@
 import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 import { PrinterProfileForm } from "@/components/settings/PrinterProfileForm";
+import { getAuthUser } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Printer Settings — AI4U Little Engineer" };
 
 export default async function PrinterSettingsPage() {
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) redirect("/login");
+    const user = await getAuthUser();
+  if (!user) redirect("/sign-in");
 
   const { data: profiles } = await supabase
     .from("printer_profiles")
     .select("*")
-    .eq("user_id", user.id)
+    .eq("clerk_user_id", user.id)
     .order("is_default", { ascending: false })
     .order("created_at", { ascending: true });
 

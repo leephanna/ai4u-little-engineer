@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@ai4u/shared": "workspace:*",
+    "@clerk/nextjs": "^5.7.5",
     "@google/generative-ai": "^0.21.0",
     "@sentry/nextjs": "^8.0.0",
     "@stripe/stripe-js": "^8.11.0",
