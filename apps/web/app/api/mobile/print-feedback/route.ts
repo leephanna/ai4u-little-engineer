@@ -26,8 +26,8 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { createServiceClient } from "@/lib/supabase/server";
-import { createClient } from "@supabase/supabase-js";
+import { createServiceClient } from "@/lib/supabase/service";
+import { verifyToken } from "@clerk/nextjs/server";
 import { tasks } from "@trigger.dev/sdk/v3";
 import { z } from "zod";
 
@@ -46,23 +46,26 @@ const PrintFeedbackBody = z.object({
 
 export async function POST(req: NextRequest) {
   try {
-    // ── Auth ──────────────────────────────────────────────────
-    const supabase = await createServiceClient();
+    // ── Auth (Clerk JWT) ───────────────────────────────────────────
+    const supabase = createServiceClient();
     const authHeader = req.headers.get("authorization");
     if (!authHeader?.startsWith("Bearer ")) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
     const token = authHeader.slice(7);
 
-    // Verify the JWT and get the user
-    const anonClient = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-    );
-    const { data: { user }, error: authErr } = await anonClient.auth.getUser(token);
-    if (authErr || !user) {
+    // Verify the Clerk JWT and extract userId
+    let userId: string;
+    try {
+      const payload = await verifyToken(token, {
+        secretKey: process.env.CLERK_SECRET_KEY!,
+      });
+      if (!payload?.sub) throw new Error("No sub claim");
+      userId = payload.sub;
+    } catch {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
+    const user = { id: userId };
 
     // ── Parse body ────────────────────────────────────────────
     const body = await req.json();

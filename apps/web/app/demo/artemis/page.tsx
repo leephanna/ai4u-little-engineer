@@ -25,7 +25,7 @@ export default async function ArtemisDemoPage() {
   const supabase = await createClient();
     const user = await getAuthUser();
   if (!user) {
-    redirect("/login?redirect=/demo/artemis");
+    redirect("/sign-in");
   }
 
   return (

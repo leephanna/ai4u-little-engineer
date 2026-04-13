@@ -174,10 +174,10 @@ export default function LandingPage() {
           <span className="font-semibold text-steel-100 text-sm">AI4U Little Engineer</span>
         </div>
         <div className="flex items-center gap-3">
-          <Link href="/login" className="text-steel-400 hover:text-steel-200 text-sm transition-colors">
+          <Link href="/sign-in" className="text-steel-400 hover:text-steel-200 text-sm transition-colors">
             Sign In
           </Link>
-          <Link href="/signup" className="btn-primary text-sm py-1.5 px-4">
+          <Link href="/sign-up" className="btn-primary text-sm py-1.5 px-4">
             Get Started Free
           </Link>
         </div>
@@ -210,7 +210,7 @@ export default function LandingPage() {
             into precision 3D-printable designs. No CAD skills required.
           </p>
           <div className="flex flex-col sm:flex-row gap-3 justify-center mb-4">
-            <Link href="/signup" className="btn-primary text-base py-3 px-8">
+            <Link href="/sign-up" className="btn-primary text-base py-3 px-8">
               Start Creating Free
             </Link>
             <Link href="/demo/artemis" className="btn-secondary text-base py-3 px-8">
@@ -233,7 +233,7 @@ export default function LandingPage() {
           ].map((ex) => (
             <Link
               key={ex}
-              href="/signup"
+              href="/sign-up"
               className="text-xs text-steel-400 bg-steel-800/80 border border-steel-700 hover:border-brand-600 hover:text-brand-300 rounded-full px-3 py-1.5 transition-colors"
             >
               &ldquo;{ex}&rdquo;
@@ -275,7 +275,7 @@ export default function LandingPage() {
               </div>
             </div>
             <div className="mt-4">
-              <Link href="/signup" className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl bg-brand-600 hover:bg-brand-500 text-white font-semibold text-sm transition-all">
+              <Link href="/sign-up" className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl bg-brand-600 hover:bg-brand-500 text-white font-semibold text-sm transition-all">
                 Start Creating →
               </Link>
             </div>
@@ -487,7 +487,7 @@ export default function LandingPage() {
             generations and priority queue are coming soon.
           </p>
           <div className="flex flex-col sm:flex-row gap-3 justify-center">
-            <Link href="/signup" className="btn-primary text-base py-3 px-8">
+            <Link href="/sign-up" className="btn-primary text-base py-3 px-8">
               Start Creating Free
             </Link>
             <Link href="/demo/artemis" className="btn-secondary text-base py-3 px-8">
@@ -509,10 +509,10 @@ export default function LandingPage() {
           V1.1 · Built with Next.js, Supabase, build123d · 10 part families · Printer-aware
         </p>
         <div className="flex justify-center gap-6 mt-4 text-xs">
-          <Link href="/login" className="hover:text-steel-300 transition-colors">
+          <Link href="/sign-in" className="hover:text-steel-300 transition-colors">
             Sign In
           </Link>
-          <Link href="/signup" className="hover:text-steel-300 transition-colors">
+          <Link href="/sign-up" className="hover:text-steel-300 transition-colors">
             Sign Up
           </Link>
           <Link href="/demo/artemis" className="hover:text-steel-300 transition-colors">

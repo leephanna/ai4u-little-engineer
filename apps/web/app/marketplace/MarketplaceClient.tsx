@@ -78,7 +78,7 @@ function PurchaseButton({
 
   const handleBuy = async () => {
     if (!isAuthenticated) {
-      window.location.href = "/auth/login?redirect=/marketplace";
+      window.location.href = "/sign-in";
       return;
     }
     setLoading(true);

@@ -32,10 +32,10 @@ export default function PricingPage() {
           <span className="font-semibold text-steel-100 text-sm">AI4U Little Engineer</span>
         </Link>
         <div className="flex items-center gap-4">
-          <Link href="/login" className="text-steel-400 hover:text-steel-100 text-sm transition-colors">
+          <Link href="/sign-in" className="text-steel-400 hover:text-steel-100 text-sm transition-colors">
             Sign In
           </Link>
-          <Link href="/signup" className="btn-primary text-sm py-1.5 px-4">
+          <Link href="/sign-up" className="btn-primary text-sm py-1.5 px-4">
             Get Started Free
           </Link>
         </div>
@@ -102,7 +102,7 @@ export default function PricingPage() {
           </div>
 
           <div className="flex flex-col sm:flex-row gap-3 justify-center">
-            <Link href="/signup" className="btn-primary text-base py-3 px-8">
+            <Link href="/sign-up" className="btn-primary text-base py-3 px-8">
               Start Creating Free
             </Link>
             <Link href="/demo/artemis" className="btn-secondary text-base py-3 px-8">

@@ -4,23 +4,22 @@
  */
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/service";
-import { createClient } from "@/lib/supabase/server";
+import { getAuthUser } from "@/lib/auth";
 
 export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ debateId: string }> }
 ) {
   const { debateId } = await params;
-
-  // Auth: must be admin
-  const supabaseUser = await createClient();
-  const { data: { user } } = await supabaseUser.auth.getUser();
+  // Auth: must be admin (Clerk)
+  const user = await getAuthUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const { data: profile } = await supabaseUser
+  const supabase = createServiceClient();
+  const { data: profile } = await supabase
     .from("profiles")
     .select("role")
-    .eq("id", user.id)
+    .eq("clerk_user_id", user.id)
     .single();
   if (profile?.role !== "admin") {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
@@ -32,8 +31,6 @@ export async function POST(
   if (!decision || !["approved", "rejected"].includes(decision)) {
     return NextResponse.json({ error: "decision must be 'approved' or 'rejected'" }, { status: 400 });
   }
-
-  const supabase = createServiceClient();
 
   const { error } = await supabase
     .from("intelligence_debates")

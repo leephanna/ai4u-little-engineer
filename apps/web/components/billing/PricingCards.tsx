@@ -17,7 +17,7 @@ export function PricingCards() {
 
   async function handleSelect(planId: PlanId) {
     if (planId === "free") {
-      router.push("/signup");
+      router.push("/sign-up");
       return;
     }
     setLoading(planId);
@@ -30,7 +30,7 @@ export function PricingCards() {
       });
       if (res.status === 401) {
         // Not logged in — redirect to signup with plan hint
-        router.push(`/signup?plan=${planId}`);
+        router.push(`/sign-up?plan=${planId}`);
         return;
       }
       const data = await res.json();

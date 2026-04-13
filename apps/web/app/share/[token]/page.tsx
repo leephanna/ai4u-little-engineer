@@ -237,7 +237,7 @@ export default async function SharedJobPage({ params }: Props) {
             AI4U Little Engineer turns plain English into production-ready CAD files
             in seconds. Free to start.
           </p>
-          <Link href="/signup" className="btn-primary">
+          <Link href="/sign-up" className="btn-primary">
             Get Started Free
           </Link>
         </div>

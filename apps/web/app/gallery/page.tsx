@@ -345,10 +345,10 @@ export default function GalleryPage() {
           </Link>
         </div>
         <div className="flex items-center gap-3">
-          <Link href="/login" className="text-steel-400 hover:text-steel-200 text-sm transition-colors">
+          <Link href="/sign-in" className="text-steel-400 hover:text-steel-200 text-sm transition-colors">
             Sign In
           </Link>
-          <Link href="/signup" className="btn-primary text-sm py-1.5 px-4">
+          <Link href="/sign-up" className="btn-primary text-sm py-1.5 px-4">
             Get Started Free
           </Link>
         </div>

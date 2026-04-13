@@ -22,9 +22,9 @@
  *   - Lets the user click GO to trigger generation
  */
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { createClient } from "@/lib/supabase/client";
+import { useAuth } from "@clerk/nextjs";
 
 type Material = "PLA" | "PETG" | "ABS";
 type Quality = "draft" | "standard" | "fine";
@@ -93,14 +93,8 @@ export default function ArtemisIIDemoCard() {
   const [phase, setPhase] = useState<"config" | "preview" | "generating" | "done">("config");
   const [jobId, setJobId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);
-
-  useEffect(() => {
-    const supabase = createClient();
-    supabase.auth.getUser().then(({ data: { user } }) => {
-      setIsAuthenticated(!!user);
-    });
-  }, []);
+  const { isSignedIn, isLoaded } = useAuth();
+  const isAuthenticated = isLoaded ? (isSignedIn ?? false) : null;
 
   const scaleParams = SCALE_PARAMS[config.scale];
   const vpl = VPL_SCORES[config.quality];
@@ -284,17 +278,17 @@ export default function ArtemisIIDemoCard() {
               <p className="font-semibold mb-1">Sign in to generate this model</p>
               <p className="text-xs text-steel-400 mb-3">Create a free account to generate and download your Artemis II model.</p>
               <a
-                href="/signup?redirect=/demo/artemis"
+                href="/sign-up"
                 className="inline-block px-4 py-2 bg-brand-600 hover:bg-brand-500 text-white text-xs font-bold rounded-lg transition-colors"
               >
                 Sign Up Free →
               </a>
               <span className="mx-2 text-steel-600 text-xs">or</span>
               <a
-                href="/login?redirect=/demo/artemis"
+                href="/sign-in"
                 className="inline-block px-4 py-2 bg-steel-700 hover:bg-steel-600 text-steel-200 text-xs font-bold rounded-lg transition-colors"
               >
-                Log In
+                Sign In
               </a>
             </div>
           ) : error ? (
