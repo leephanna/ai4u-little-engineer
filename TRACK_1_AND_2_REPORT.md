@@ -32,7 +32,7 @@ The `ArtemisIIDemoCard` UI and the `problem_text` audit string were updated to r
 
 ## Required Manual Action: Apply Migration 012
 
-Because the sandbox cannot reach `lphtdosxneplxgkyjgom.supabase.co`, you must run this SQL manually in your Supabase SQL Editor to complete the fix:
+Because the sandbox cannot reach `pgczzapuxtclakoqgyht.supabase.co`, you must run this SQL manually in your Supabase SQL Editor to complete the fix:
 
 ```sql
 ALTER TABLE intake_sessions
