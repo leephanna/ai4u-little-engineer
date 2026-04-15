@@ -9,8 +9,8 @@
 
 These migrations must be run manually in the Supabase SQL Editor because the sandbox cannot reach the Supabase DB directly.
 
-**Target Supabase Project:** `pgczzapuxtclakoqgyht` (AI4U LITTLE ENGINEER PROD — under AI4U Org)
-**Dashboard URL:** `https://supabase.com/dashboard/project/pgczzapuxtclakoqgyht`
+**Target Supabase Project:** `lphtdosxneplxgkygjom` (AI4U LITTLE ENGINEER PROD — under AI4U Org)
+**Dashboard URL:** `https://supabase.com/dashboard/project/lphtdosxneplxgkygjom`
 
 Run all migration files in order from `packages/db/migrations/` in the Supabase SQL Editor.
 
@@ -56,13 +56,13 @@ To enable Google sign-in via Clerk:
 
 ## 3. Vercel Environment Variables
 
-Ensure the following are set in the Vercel project (`ai4u-little-engineer`):
+Ensure the following are set in the Vercel project (`ai4u-little-engineer-web`):
 
 | Variable | Value |
 |----------|-------|
-| `NEXT_PUBLIC_SUPABASE_URL` | `https://pgczzapuxtclakoqgyht.supabase.co` |
-| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | *(anon key from AI4U ORG project)* |
-| `SUPABASE_SERVICE_ROLE_KEY` | *(service role key from AI4U ORG project)* |
+| `NEXT_PUBLIC_SUPABASE_URL` | `https://lphtdosxneplxgkygjom.supabase.co` |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | *(anon key from AI4U ORG project `lphtdosxneplxgkygjom`)* |
+| `SUPABASE_SERVICE_ROLE_KEY` | *(service role key from AI4U ORG project `lphtdosxneplxgkygjom`)* |
 | `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` | `pk_test_...` *(upgrade to `pk_live_` before launch)* |
 | `CLERK_SECRET_KEY` | `sk_test_...` *(upgrade to `sk_live_` before launch)* |
 | `NEXT_PUBLIC_CLERK_SIGN_IN_URL` | `/sign-in` |
@@ -81,6 +81,7 @@ After completing these steps:
 3. Click "Continue with Google" — it should redirect to Google OAuth via Clerk (URL will contain `clerk.com`, NOT `supabase.co`).
 4. After sign-in, you should be redirected to `/invent`.
 5. Visit `/dashboard` without being signed in — you should be redirected to `/sign-in`.
+6. Visit `/auth-health` after signing in — all rows should show green ✅.
 
 ---
 
@@ -90,9 +91,9 @@ The following Supabase project references are **obsolete and must not be used**:
 
 | Stale URL | Status |
 |-----------|--------|
-| `https://lphtdosxneplxgkyjgom.supabase.co` | Old project — deleted or abandoned |
+| `https://pgczzapuxtclakoqgyht.supabase.co` | "AI4U default stack" — empty, unrelated to Little Engineer |
 | `https://nghxnzmkvxsbtqhnnzha.supabase.co` | Free-tier duplicate — deleted |
 
-If you see either of these URLs anywhere in code, config, or env vars, replace them with `https://pgczzapuxtclakoqgyht.supabase.co`.
+If you see either of these URLs anywhere in code, config, or env vars, replace them with `https://lphtdosxneplxgkygjom.supabase.co`.
 
-*Last updated: 2026-04-13 by Manus (Clerk auth cutover + Supabase canonicalization)*
+*Last updated: 2026-04-15 by Manus (auth-stable-clerk-cutover-working checkpoint)*
