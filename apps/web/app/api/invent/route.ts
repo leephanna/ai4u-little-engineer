@@ -312,6 +312,14 @@ export async function POST(request: NextRequest) {
     }
 
     // ── Step 4: Trigger CAD generation pipeline ─────────────────
+    // Bootstrap profile for first-time Clerk users (safe upsert — no-op if row exists)
+    await serviceSupabase
+      .from("profiles")
+      .upsert(
+        { clerk_user_id: user.id, email: user.email ?? "", plan: "free",
+          generations_this_month: 0, generation_month: new Date().toISOString().slice(0, 7) },
+        { onConflict: "clerk_user_id", ignoreDuplicates: true }
+      );
     // Check billing entitlement
     const { data: profile } = await serviceSupabase
       .from("profiles")
