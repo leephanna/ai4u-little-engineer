@@ -30,7 +30,7 @@ export async function POST(_req: NextRequest, { params }: RouteContext) {
   const { data: profile } = await supabase
     .from("profiles")
     .select("role")
-    .eq("id", user.id)
+    .eq("clerk_user_id", user.id)
     .single();
 
   if (!profile || profile.role !== "admin") {

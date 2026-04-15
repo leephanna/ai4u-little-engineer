@@ -113,7 +113,7 @@ export async function POST(req: NextRequest) {
     const { data: profile } = await serviceSupabase
       .from("profiles")
       .select("plan, generations_this_month, generation_month")
-      .eq("id", user.id)
+      .eq("clerk_user_id", user.id)
       .single();
 
     const plan = profile?.plan ?? "free";
@@ -270,7 +270,7 @@ export async function POST(req: NextRequest) {
         generations_this_month: generationsThisMonth + 1,
         generation_month: currentMonth,
       })
-      .eq("id", user.id);
+      .eq("clerk_user_id", user.id);
 
     // ── Trigger CAD pipeline ────────────────────────────────────
     let triggerRunId: string | null = null;

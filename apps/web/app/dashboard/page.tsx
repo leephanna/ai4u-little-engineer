@@ -123,7 +123,7 @@ export default async function DashboardPage() {
   const { data: profile } = await supabase
     .from("profiles")
     .select("plan, generations_this_month")
-    .eq("id", user.id)
+    .eq("clerk_user_id", user.id)
     .single();
 
   const plan = (profile?.plan as string) ?? "free";

@@ -316,7 +316,7 @@ export async function POST(request: NextRequest) {
     const { data: profile } = await serviceSupabase
       .from("profiles")
       .select("plan, generations_this_month, generation_month")
-      .eq("id", user.id)
+      .eq("clerk_user_id", user.id)
       .single();
 
      const plan = profile?.plan ?? "free";
@@ -376,7 +376,7 @@ export async function POST(request: NextRequest) {
         generations_this_month: generationsThisMonth + 1,
         generation_month: currentMonth,
       })
-      .eq("id", user.id);
+      .eq("clerk_user_id", user.id);
 
     // Trigger the pipeline
     let triggerRunId: string | null = null;

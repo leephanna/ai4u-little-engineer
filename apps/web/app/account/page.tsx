@@ -46,7 +46,7 @@ export default async function AccountPage() {
   const { data: profile } = await supabase
     .from("profiles")
     .select("full_name, plan, subscription_status, stripe_customer_id, generations_this_month, generation_month, current_period_end, plan_activated_at")
-    .eq("id", user.id)
+    .eq("clerk_user_id", user.id)
     .single();
 
   const planId = ((profile?.plan as PlanId) ?? "free") as PlanId;

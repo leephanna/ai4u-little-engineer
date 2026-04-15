@@ -93,7 +93,7 @@ export async function POST(request: NextRequest) {
     const { data: profile } = await serviceSupabase
       .from("profiles")
       .select("stripe_customer_id, email")
-      .eq("id", user.id)
+      .eq("clerk_user_id", user.id)
       .single();
 
     const stripe = getStripe();
@@ -108,7 +108,7 @@ export async function POST(request: NextRequest) {
       await serviceSupabase
         .from("profiles")
         .update({ stripe_customer_id: customerId })
-        .eq("id", user.id);
+        .eq("clerk_user_id", user.id);
     }
 
     // Create a pending purchase record

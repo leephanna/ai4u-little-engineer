@@ -47,7 +47,7 @@ export async function POST(
     const { data: profile } = await serviceSupabase
       .from("profiles")
       .select("plan, generations_this_month, generation_month")
-      .eq("id", user.id)
+      .eq("clerk_user_id", user.id)
       .single();
 
     // Default to free plan if profile is missing (new user edge case)
@@ -145,7 +145,7 @@ export async function POST(
         generations_this_month: generationsThisMonth + 1,
         generation_month: currentMonth,
       })
-      .eq("id", user.id);
+      .eq("clerk_user_id", user.id);
 
     // Create a CAD run record (queued) — Trigger.dev pipeline will update it
     // NOTE: cad_runs has no INSERT RLS policy (only SELECT), so we must use
@@ -172,7 +172,7 @@ export async function POST(
       await serviceSupabase
         .from("profiles")
         .update({ generations_this_month: generationsThisMonth })
-        .eq("id", user.id);
+        .eq("clerk_user_id", user.id);
       return NextResponse.json(
         { error: "Failed to create CAD run record" },
         { status: 500 }
@@ -228,7 +228,7 @@ export async function POST(
         await serviceSupabase
           .from("profiles")
           .update({ generations_this_month: generationsThisMonth })
-          .eq("id", user.id);
+          .eq("clerk_user_id", user.id);
         return NextResponse.json(
           { error: "Failed to dispatch background job. Please retry." },
           { status: 503 }

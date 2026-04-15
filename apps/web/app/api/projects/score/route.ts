@@ -51,7 +51,7 @@ export async function POST(request: NextRequest) {
     const { data: profile } = await serviceSupabase
       .from("profiles")
       .select("role")
-      .eq("id", user.id)
+      .eq("clerk_user_id", user.id)
       .single();
 
     const isAdmin = profile?.role === "admin" || profile?.role === "owner";

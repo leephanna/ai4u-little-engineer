@@ -30,7 +30,7 @@ export async function GET(req: NextRequest) {
     const { data: profile } = await serviceSupabase
       .from("profiles")
       .select("role")
-      .eq("id", user.id)
+      .eq("clerk_user_id", user.id)
       .single();
 
     if (profile?.role !== "operator") {
