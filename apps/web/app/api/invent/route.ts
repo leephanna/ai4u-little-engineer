@@ -256,19 +256,25 @@ export async function POST(request: NextRequest) {
     const isConceptOnly = truthGateResult.verdict === "CONCEPT_ONLY";
 
     // ── Step 3: Create session → job → part_spec ────────────────
-    // Create a session
+
+    // [STEP: session-create]
+    console.log(`[invent] step=session-create clerk_user_id=${user.id}`);
     const { data: session, error: sessionError } = await serviceSupabase
       .from("sessions")
       .insert({ clerk_user_id: user.id, started_at: new Date().toISOString() })
       .select("id")
       .single();
-
     if (sessionError || !session) {
-      console.error("Session create error:", sessionError);
-      return NextResponse.json({ error: "Failed to create session" }, { status: 500 });
+      console.error("[invent] FAIL step=session-create", JSON.stringify(sessionError));
+      return NextResponse.json(
+        { error: "Failed to create session", step: "session-create", detail: sessionError?.message },
+        { status: 500 }
+      );
     }
+    console.log(`[invent] OK step=session-create session_id=${session.id}`);
 
-    // Create a job
+    // [STEP: job-insert]
+    console.log(`[invent] step=job-insert clerk_user_id=${user.id} session_id=${session.id}`);
     const { data: job, error: jobError } = await serviceSupabase
       .from("jobs")
       .insert({
@@ -284,13 +290,16 @@ export async function POST(request: NextRequest) {
       })
       .select("id")
       .single();
-
     if (jobError || !job) {
-      console.error("Job create error:", jobError);
-      return NextResponse.json({ error: "Failed to create job" }, { status: 500 });
+      console.error("[invent] FAIL step=job-insert", JSON.stringify(jobError));
+      return NextResponse.json(
+        { error: "Failed to create job", step: "job-insert", detail: jobError?.message },
+        { status: 500 }
+      );
     }
+    console.log(`[invent] OK step=job-insert job_id=${job.id}`);
 
-    // Create a part_spec
+    // [STEP: part-spec-insert]
     const { data: partSpec, error: specError } = await serviceSupabase
       .from("part_specs")
       .insert({
@@ -305,29 +314,54 @@ export async function POST(request: NextRequest) {
       })
       .select("id")
       .single();
-
     if (specError || !partSpec) {
-      console.error("Part spec create error:", specError);
-      return NextResponse.json({ error: "Failed to create part spec" }, { status: 500 });
+      console.error("[invent] FAIL step=part-spec-insert", JSON.stringify(specError));
+      return NextResponse.json(
+        { error: "Failed to create part spec", step: "part-spec-insert", detail: specError?.message },
+        { status: 500 }
+      );
     }
+    console.log(`[invent] OK step=part-spec-insert part_spec_id=${partSpec.id}`);
 
     // ── Step 4: Trigger CAD generation pipeline ─────────────────
-    // Bootstrap profile for first-time Clerk users (safe upsert — no-op if row exists)
-    await serviceSupabase
+
+    // [STEP: profile-bootstrap]
+    // Safe upsert — no-op if row already exists.
+    // NOTE: public.profiles has NO email column. Do NOT add email here.
+    console.log(`[invent] step=profile-bootstrap clerk_user_id=${user.id}`);
+    const { error: upsertError } = await serviceSupabase
       .from("profiles")
       .upsert(
-        { clerk_user_id: user.id, email: user.email ?? "", plan: "free",
-          generations_this_month: 0, generation_month: new Date().toISOString().slice(0, 7) },
+        {
+          clerk_user_id: user.id,
+          plan: "free",
+          generations_this_month: 0,
+          generation_month: new Date().toISOString().slice(0, 7),
+        },
         { onConflict: "clerk_user_id", ignoreDuplicates: true }
       );
-    // Check billing entitlement
-    const { data: profile } = await serviceSupabase
+    if (upsertError) {
+      console.error("[invent] FAIL step=profile-bootstrap", JSON.stringify(upsertError));
+      return NextResponse.json(
+        { error: "Failed to bootstrap profile", step: "profile-bootstrap", detail: upsertError.message },
+        { status: 500 }
+      );
+    }
+    console.log(`[invent] OK step=profile-bootstrap`);
+
+    // [STEP: profile-fetch]
+    console.log(`[invent] step=profile-fetch clerk_user_id=${user.id}`);
+    const { data: profile, error: profileFetchError } = await serviceSupabase
       .from("profiles")
       .select("plan, generations_this_month, generation_month")
       .eq("clerk_user_id", user.id)
       .single();
+    if (profileFetchError) {
+      console.error("[invent] WARN step=profile-fetch", JSON.stringify(profileFetchError));
+    }
+    console.log(`[invent] OK step=profile-fetch plan=${profile?.plan ?? "free"}`);
 
-     const plan = profile?.plan ?? "free";
+    const plan = profile?.plan ?? "free";
     const currentMonth = new Date().toISOString().slice(0, 7);
     const generationsThisMonth =
       profile?.generation_month === currentMonth
@@ -335,7 +369,8 @@ export async function POST(request: NextRequest) {
         : 0;
     const limits: Record<string, number | null> = { free: 3, maker: 50, pro: null };
     const limit = limits[plan] ?? 3;
-    // Access policy bypass check (Phase 4)
+
+    // Access policy bypass check
     const bypass = await shouldBypassLimits(user.email);
     if (bypass.bypassed) {
       console.log(`[invent] bypass active — reason: ${bypass.reason} — user: ${user.email}`);
@@ -350,7 +385,8 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Create CAD run
+    // [STEP: cad-run-insert]
+    console.log(`[invent] step=cad-run-insert job_id=${job.id}`);
     const { data: cadRun, error: runError } = await serviceSupabase
       .from("cad_runs")
       .insert({
@@ -365,19 +401,23 @@ export async function POST(request: NextRequest) {
       })
       .select()
       .single();
-
     if (runError || !cadRun) {
-      console.error("CAD run create error:", runError);
-      return NextResponse.json({ error: "Failed to create CAD run" }, { status: 500 });
+      console.error("[invent] FAIL step=cad-run-insert", JSON.stringify(runError));
+      return NextResponse.json(
+        { error: "Failed to create CAD run", step: "cad-run-insert", detail: runError?.message },
+        { status: 500 }
+      );
     }
+    console.log(`[invent] OK step=cad-run-insert cad_run_id=${cadRun.id}`);
 
-    // Update job status
+    // Update job status to generating
     await serviceSupabase
       .from("jobs")
       .update({ status: "generating", latest_run_id: cadRun.id })
       .eq("id", job.id);
 
-    // Increment generation counter
+    // [STEP: counter-update]
+    console.log(`[invent] step=counter-update clerk_user_id=${user.id} new_count=${generationsThisMonth + 1}`);
     await serviceSupabase
       .from("profiles")
       .update({
