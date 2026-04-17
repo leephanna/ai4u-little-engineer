@@ -40,8 +40,8 @@ export async function POST(req: NextRequest) {
     // Verify the session belongs to this user
     const { data: session } = await serviceSupabase
       .from("intake_sessions")
-      .select("id")
-      .eq("id", session_id)
+      .select("session_id")
+      .eq("session_id", session_id)
       .eq("clerk_user_id", user.id)
       .single();
 

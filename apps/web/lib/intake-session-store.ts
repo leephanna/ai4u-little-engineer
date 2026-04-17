@@ -56,7 +56,7 @@ export async function setIntakeSession(
       .from("intake_sessions")
       .upsert(
         {
-          id: sessionId,
+          session_id: sessionId,
           clerk_user_id: resolvedClerkUserId,
           mode: state.mode ?? null,
           family_candidate: state.family_candidate ?? null,
@@ -73,7 +73,7 @@ export async function setIntakeSession(
           status: state.status ?? "active",
           updated_at: new Date().toISOString(),
         },
-        { onConflict: "id" }
+        { onConflict: "session_id" }
       );
   } catch (dbErr) {
     // Non-fatal: memory store already has the session
@@ -105,7 +105,7 @@ export async function getIntakeSession(
     const { data, error } = await supabase
       .from("intake_sessions")
       .select("*")
-      .eq("id", sessionId)
+      .eq("session_id", sessionId)
       .single();
 
     if (!error && data) {

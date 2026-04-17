@@ -335,9 +335,9 @@ export async function POST(req: NextRequest) {
           assistant_message: llmResult.assistant_message,
           file_count: files.length,
         })
-        .select("id")
+        .select("session_id")
         .single();
-      sessionId = session?.id ?? `harmonia-${Date.now()}`;
+      sessionId = session?.session_id ?? `harmonia-${Date.now()}`;
     } else {
       // Update existing session with merged result
       await serviceSupabase
@@ -349,7 +349,7 @@ export async function POST(req: NextRequest) {
           missing_information: llmResult.missing_information,
           assistant_message: llmResult.assistant_message,
         })
-        .eq("id", sessionId);
+        .eq("session_id", sessionId);
     }
 
     // ── Build Daedalus Gate Receipt ─────────────────────────────
