@@ -6,16 +6,15 @@
  * returns the next consumer-friendly follow-up question and
  * an updated interpretation result.
  *
- * Session storage strategy (dual-layer):
- * 1. Primary: Supabase intake_sessions table (if it exists)
- * 2. Fallback: In-memory Map (imported from interpret route)
+ * Session storage strategy (DB-primary, memory-fallback):
+ * 1. PRIMARY: Supabase intake_sessions table (persistent across serverless instances)
+ * 2. FALLBACK: In-memory Map (local dev / DB unavailable)
  *
  * If session is not found in either store, returns 404 with
  * "Session expired. Please start over."
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { createServiceClient } from "@/lib/supabase/service";
 import OpenAI from "openai";
 import { getAuthUser } from "@/lib/auth";
 import { getIntakeSession, setIntakeSession } from "@/lib/intake-session-store";
@@ -101,39 +100,18 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const serviceSupabase = createServiceClient();
+    // ── Session lookup (DB-primary via getIntakeSession) ──────────────────────
+    const session = await getIntakeSession(session_id);
 
-    // ── Dual-layer session lookup ─────────────────────────────────────────────
-    let session: Record<string, unknown> | null = null;
-    let sessionSource: "db" | "memory" | null = null;
-
-    // 1. Try Supabase first
-    try {
-      const { data, error } = await serviceSupabase
-        .from("intake_sessions")
-        .select("*")
-        .eq("id", session_id)
-        .eq("clerk_user_id", user.id)
-        .single();
-      if (!error && data) {
-        session = data;
-        sessionSource = "db";
-      }
-    } catch {
-      // Table may not exist — fall through to in-memory
+    if (!session) {
+      return NextResponse.json(
+        { error: "Session expired. Please start over." },
+        { status: 404 }
+      );
     }
 
-    // 2. Fall back to in-memory store
-    if (!session) {
-      const memSession = getIntakeSession(session_id);
-      if (memSession && memSession.clerk_user_id === user.id) {
-        session = memSession;
-        sessionSource = "memory";
-      }
-    }
-
-    // 3. Not found in either store
-    if (!session) {
+    // Verify the session belongs to this user
+    if (session.clerk_user_id && session.clerk_user_id !== user.id) {
       return NextResponse.json(
         { error: "Session expired. Please start over." },
         { status: 404 }
@@ -215,21 +193,8 @@ export async function POST(req: NextRequest) {
 
     if (llmFailed) {
       const newFailCount = currentFailCount + 1;
-
-      // Update fail count in both stores
       const updatedSession = { ...session, clarify_fail_count: newFailCount };
-      setIntakeSession(session_id, updatedSession);
-
-      if (sessionSource === "db") {
-        try {
-          await serviceSupabase
-            .from("intake_sessions")
-            .update({ clarify_fail_count: newFailCount, updated_at: new Date().toISOString() })
-            .eq("id", session_id);
-        } catch {
-          // Non-fatal
-        }
-      }
+      await setIntakeSession(session_id, updatedSession, session.clerk_user_id as string | undefined);
 
       const missing = (session.missing_information as string[]) ?? [];
       const dims = (session.extracted_dimensions as Record<string, number>) ?? {};
@@ -290,29 +255,12 @@ export async function POST(req: NextRequest) {
       updatePayload.fit_envelope = parsed.fit_envelope;
     }
 
-    // Update in-memory store
-    setIntakeSession(session_id, { ...session, ...updatePayload });
-
-    // Update DB if session came from there
-    if (sessionSource === "db") {
-      try {
-        await serviceSupabase
-          .from("intake_sessions")
-          .update({ ...updatePayload, clarify_fail_count: 0 })
-          .eq("id", session_id);
-      } catch (dbErr) {
-        // Try without clarify_fail_count if column missing
-        try {
-          const { clarify_fail_count: _fc, ...payloadWithoutFc } = updatePayload as Record<string, unknown> & { clarify_fail_count: unknown };
-          await serviceSupabase
-            .from("intake_sessions")
-            .update(payloadWithoutFc)
-            .eq("id", session_id);
-        } catch (dbErr2) {
-          console.error("[/api/intake/clarify] DB update failed:", dbErr2);
-        }
-      }
-    }
+    // Write updated session (DB-primary + memory)
+    await setIntakeSession(
+      session_id,
+      { ...session, ...updatePayload },
+      session.clerk_user_id as string | undefined
+    );
 
     return NextResponse.json({
       session_id,

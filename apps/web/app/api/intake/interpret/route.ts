@@ -2,20 +2,22 @@
  * POST /api/intake/interpret
  *
  * Multimodal interpretation engine.
- * Accepts text + optional uploaded files (images/documents) and returns
- * a structured InterpretationResult that classifies the request into a
- * creation mode and extracts as much information as possible.
+ * Accepts:
+ *   - application/json: { text, files?, voice_transcript?, session_id?, conversation_history? }
+ *   - multipart/form-data: text (field), file (File, optional)
  *
- * Session storage strategy (dual-layer):
- * 1. Primary: Supabase intake_sessions table (if it exists)
- * 2. Fallback: In-memory Map via lib/intake-session-store
+ * Returns a structured InterpretationResult including a session_id that
+ * ClarificationChat uses to call /api/intake/clarify.
  *
- * The session_id is ALWAYS returned in the response so ClarificationChat
- * can pass it to /api/intake/clarify.
+ * Session storage strategy (DB-primary, memory-fallback):
+ * 1. PRIMARY: Supabase intake_sessions table (persistent across serverless instances)
+ * 2. FALLBACK: In-memory Map via lib/intake-session-store (local dev / DB unavailable)
+ *
+ * Image processing errors are caught and degraded gracefully — the route
+ * continues with text-only interpretation rather than returning a 500.
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { createServiceClient } from "@/lib/supabase/service";
 import OpenAI from "openai";
 import { getAuthUser } from "@/lib/auth";
 import { randomUUID } from "crypto";
@@ -55,7 +57,7 @@ interface FileInterpretation {
   analysis_notes: string;
 }
 
-interface RequestBody {
+interface JsonRequestBody {
   text: string;
   files?: Array<{
     id: string;
@@ -101,16 +103,85 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const body: RequestBody = await req.json();
-    const { text, files = [], voice_transcript, session_id, conversation_history = [] } = body;
+    // ── Parse request body (JSON or multipart/form-data) ──────────────────────
+    const contentType = req.headers.get("content-type") ?? "";
 
-    if (!text && files.length === 0 && !voice_transcript) {
+    let text = "";
+    let voice_transcript: string | undefined;
+    let session_id: string | undefined;
+    let conversation_history: Array<{ role: "user" | "assistant"; content: string }> = [];
+    let jsonFiles: JsonRequestBody["files"] = [];
+    let multipartImageDataUrl: string | null = null;
+    let multipartFileName = "";
+    let multipartFileType = "";
+    let multipartFileSize = 0;
+
+    if (contentType.includes("multipart/form-data")) {
+      // Handle multipart/form-data (image upload from the UI)
+      let form: FormData;
+      try {
+        form = await req.formData();
+      } catch (formErr) {
+        console.error("[/api/intake/interpret] Failed to parse form data:", formErr);
+        return NextResponse.json({ error: "Invalid form data" }, { status: 400 });
+      }
+
+      text = form.get("text")?.toString() ?? "";
+      voice_transcript = form.get("voice_transcript")?.toString();
+      session_id = form.get("session_id")?.toString();
+      const historyRaw = form.get("conversation_history")?.toString();
+      if (historyRaw) {
+        try {
+          conversation_history = JSON.parse(historyRaw);
+        } catch {
+          conversation_history = [];
+        }
+      }
+
+      // Process uploaded file (if any)
+      const file = form.get("file") as File | null;
+      if (file && file.size > 0) {
+        try {
+          const buffer = await file.arrayBuffer();
+          const base64 = Buffer.from(buffer).toString("base64");
+          multipartImageDataUrl = `data:${file.type};base64,${base64}`;
+          multipartFileName = file.name;
+          multipartFileType = file.type;
+          multipartFileSize = file.size;
+        } catch (fileErr) {
+          // Graceful degradation: log and continue with text-only
+          console.error("[/api/intake/interpret] Image processing failed:", fileErr);
+          multipartImageDataUrl = null;
+        }
+      }
+    } else {
+      // Handle application/json
+      let body: JsonRequestBody;
+      try {
+        body = await req.json();
+      } catch (jsonErr) {
+        console.error("[/api/intake/interpret] Failed to parse JSON body:", jsonErr);
+        return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
+      }
+      text = body.text ?? "";
+      jsonFiles = body.files ?? [];
+      voice_transcript = body.voice_transcript;
+      session_id = body.session_id;
+      conversation_history = body.conversation_history ?? [];
+    }
+
+    // Validate: at least some input
+    const hasInput =
+      text.trim() ||
+      (voice_transcript?.trim()) ||
+      (jsonFiles && jsonFiles.length > 0) ||
+      multipartImageDataUrl;
+
+    if (!hasInput) {
       return NextResponse.json({ error: "No input provided" }, { status: 400 });
     }
 
-    const serviceSupabase = createServiceClient();
-
-    // Build the messages array for the LLM
+    // ── Build LLM messages ────────────────────────────────────────────────────
     const messages: OpenAI.Chat.ChatCompletionMessageParam[] = [
       { role: "system", content: SYSTEM_PROMPT },
     ];
@@ -134,20 +205,41 @@ export async function POST(req: NextRequest) {
       userContent.push({ type: "text", text: combinedText });
     }
 
-    const imageFiles = files.filter(
+    // JSON path: process files array
+    const imageFiles = (jsonFiles ?? []).filter(
       (f) =>
         f.type.startsWith("image/") &&
         f.type !== "image/svg+xml" &&
         f.dataUrl.startsWith("data:")
     );
+
+    // Gracefully handle image content (catch vision errors)
     for (const img of imageFiles.slice(0, 3)) {
-      userContent.push({
-        type: "image_url",
-        image_url: { url: img.dataUrl, detail: "low" },
-      });
+      try {
+        userContent.push({
+          type: "image_url",
+          image_url: { url: img.dataUrl, detail: "low" },
+        });
+      } catch (imgErr) {
+        console.error("[/api/intake/interpret] Failed to add image to message:", imgErr);
+        // Continue without this image
+      }
     }
 
-    const docFiles = files.filter(
+    // Multipart path: add uploaded image
+    if (multipartImageDataUrl) {
+      try {
+        userContent.push({
+          type: "image_url",
+          image_url: { url: multipartImageDataUrl, detail: "low" },
+        });
+      } catch (imgErr) {
+        console.error("[/api/intake/interpret] Failed to add multipart image to message:", imgErr);
+        // Continue without image
+      }
+    }
+
+    const docFiles = (jsonFiles ?? []).filter(
       (f) => !f.type.startsWith("image/") || f.type === "image/svg+xml"
     );
     if (docFiles.length > 0) {
@@ -163,21 +255,23 @@ export async function POST(req: NextRequest) {
 
     messages.push({ role: "user", content: userContent });
 
-    const completion = await openai.chat.completions.create({
-      model: "gpt-4.1-mini",
-      messages,
-      temperature: 0.1,
-      max_tokens: 600,
-      response_format: { type: "json_object" },
-    });
-
+    // ── Call LLM ──────────────────────────────────────────────────────────────
     let parsed: Partial<InterpretationResult> = {};
     try {
+      const completion = await openai.chat.completions.create({
+        model: "gpt-4.1-mini",
+        messages,
+        temperature: 0.1,
+        max_tokens: 600,
+        response_format: { type: "json_object" },
+      });
       parsed = JSON.parse(completion.choices[0]?.message?.content ?? "{}");
-    } catch {
+    } catch (llmErr) {
+      console.error("[/api/intake/interpret] LLM call failed:", llmErr);
       parsed = {
         mode: "needs_clarification",
-        assistant_message: "I had trouble understanding that. Could you describe what you want to print in a sentence or two?",
+        assistant_message:
+          "I had trouble understanding that. Could you describe what you want to print in a sentence or two?",
         confidence: 0,
       };
     }
@@ -186,7 +280,15 @@ export async function POST(req: NextRequest) {
       parsed.mode = "needs_clarification";
     }
 
-    const fileInterpretations: FileInterpretation[] = files.map((f) => {
+    // ── Build file interpretations ────────────────────────────────────────────
+    const allFiles = [
+      ...(jsonFiles ?? []).map((f) => ({ name: f.name, type: f.type, size: f.size })),
+      ...(multipartImageDataUrl
+        ? [{ name: multipartFileName, type: multipartFileType, size: multipartFileSize }]
+        : []),
+    ];
+
+    const fileInterpretations: FileInterpretation[] = allFiles.map((f) => {
       const isImage = f.type.startsWith("image/") && f.type !== "image/svg+xml";
       const isSvg = f.type === "image/svg+xml";
       const isDoc = !isImage && !isSvg;
@@ -194,7 +296,9 @@ export async function POST(req: NextRequest) {
         file_name: f.name,
         file_category: isImage ? "image" : isSvg ? "svg" : isDoc ? "document" : "unknown",
         interpretation: isImage
-          ? (parsed.mode === "image_to_relief" ? "flat_relief" : "reference_image")
+          ? parsed.mode === "image_to_relief"
+            ? "flat_relief"
+            : "reference_image"
           : isSvg
           ? "svg_extrusion_candidate"
           : "reference_document",
@@ -202,8 +306,10 @@ export async function POST(req: NextRequest) {
       };
     });
 
-    // ── Session state to persist ──────────────────────────────────────────────
-    const sessionData = {
+    // ── Session state ─────────────────────────────────────────────────────────
+    const activeSessionId = session_id ?? randomUUID();
+
+    const sessionState: Record<string, unknown> = {
       clerk_user_id: user.id,
       mode: parsed.mode,
       family_candidate: parsed.family_candidate ?? null,
@@ -222,46 +328,8 @@ export async function POST(req: NextRequest) {
       status: "active",
     };
 
-    // ── Dual-layer session storage ────────────────────────────────────────────
-    // Generate a session ID upfront so we always have one to return
-    const newSessionId = randomUUID();
-    let activeSessionId = session_id ?? newSessionId;
-
-    // 1. Try Supabase (primary)
-    let dbSuccess = false;
-    try {
-      if (!session_id) {
-        const { data: newSession, error } = await serviceSupabase
-          .from("intake_sessions")
-          .insert({ ...sessionData, id: activeSessionId })
-          .select("id")
-          .single();
-        if (!error && newSession?.id) {
-          activeSessionId = newSession.id;
-          dbSuccess = true;
-        }
-      } else {
-        const { error } = await serviceSupabase
-          .from("intake_sessions")
-          .update({
-            ...sessionData,
-            updated_at: new Date().toISOString(),
-          })
-          .eq("id", session_id);
-        if (!error) {
-          dbSuccess = true;
-        }
-      }
-    } catch (dbErr) {
-      console.warn("[/api/intake/interpret] DB session storage failed, using in-memory fallback:", dbErr);
-    }
-
-    // 2. Always write to in-memory store as well (ensures clarify can find it)
-    setIntakeSession(activeSessionId, { ...sessionData, id: activeSessionId });
-
-    if (!dbSuccess) {
-      console.info(`[/api/intake/interpret] Session ${activeSessionId} stored in-memory only`);
-    }
+    // Write to DB (primary) + memory (fallback) — async, non-blocking for response
+    await setIntakeSession(activeSessionId, sessionState, user.id);
 
     const result: InterpretationResult = {
       mode: (parsed.mode as InterpretationMode) ?? "needs_clarification",
@@ -270,7 +338,8 @@ export async function POST(req: NextRequest) {
       inferred_scale: parsed.inferred_scale ?? null,
       inferred_object_type: parsed.inferred_object_type ?? null,
       missing_information: parsed.missing_information ?? [],
-      assistant_message: parsed.assistant_message ?? "Tell me more about what you want to create.",
+      assistant_message:
+        parsed.assistant_message ?? "Tell me more about what you want to create.",
       preview_strategy: parsed.preview_strategy ?? null,
       confidence: parsed.confidence ?? 0,
       file_interpretations: fileInterpretations,
