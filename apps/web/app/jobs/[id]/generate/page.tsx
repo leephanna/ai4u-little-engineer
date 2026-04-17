@@ -57,6 +57,7 @@ export default function GeneratePage() {
       }
     }
     loadSpecs();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [jobId]);
 
   async function handleGenerate() {

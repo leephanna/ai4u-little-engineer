@@ -6,24 +6,19 @@
  * returns the next consumer-friendly follow-up question and
  * an updated interpretation result.
  *
- * Track 2 fix (root cause: clarify_fail_count column missing):
- * - The previous version wrote `clarify_fail_count` to intake_sessions but
- *   that column did not exist in the schema. The Supabase UPDATE returned an
- *   error, which was caught by the outer try/catch and returned a 500 —
- *   causing "Sorry, I had a hiccup" on every successful turn.
- * - Fix: wrap ALL DB writes in their own try/catch so a column-not-found
- *   error never propagates to the user. The migration (012_clarify_fail_count.sql)
- *   adds the column; until it runs, fail_count is tracked in-memory only.
- * - Added normalization for "moderate detail", "any color", "any material".
- * - ClarificationChat.ClarifyResponse updated to include fallback_form.
+ * Session storage strategy (dual-layer):
+ * 1. Primary: Supabase intake_sessions table (if it exists)
+ * 2. Fallback: In-memory Map (imported from interpret route)
+ *
+ * If session is not found in either store, returns 404 with
+ * "Session expired. Please start over."
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
 import { createServiceClient } from "@/lib/supabase/service";
 import OpenAI from "openai";
 import { getAuthUser } from "@/lib/auth";
-
+import { getIntakeSession, setIntakeSession } from "@/lib/intake-session-store";
 
 interface ClarifyBody {
   session_id: string;
@@ -31,11 +26,8 @@ interface ClarifyBody {
 }
 
 // ── Normalization map ─────────────────────────────────────────────────────────
-// Converts natural-language values to canonical enum values before LLM processing.
-// This prevents downstream enum failures for valid user replies.
 function normalizeUserReply(reply: string): string {
   return reply
-    // Detail level
     .replace(/\bmoderate\s+detail\b/gi, "medium detail")
     .replace(/\bmoderate\b/gi, "medium")
     .replace(/\bnormal\s+detail\b/gi, "medium detail")
@@ -45,11 +37,9 @@ function normalizeUserReply(reply: string): string {
     .replace(/\bsimple\b/gi, "low detail")
     .replace(/\bbasic\b/gi, "low detail")
     .replace(/\blow\s+detail\b/gi, "low detail")
-    // Color
     .replace(/\bany\s+color\b/gi, "unspecified color")
     .replace(/\bno\s+color\s+preference\b/gi, "unspecified color")
     .replace(/\bdoesn'?t\s+matter\s+(?:what\s+)?color\b/gi, "unspecified color")
-    // Material
     .replace(/\bany\s+material\b/gi, "unspecified material")
     .replace(/\bno\s+material\s+preference\b/gi, "unspecified material")
     .replace(/\bdoesn'?t\s+matter\s+(?:what\s+)?material\b/gi, "unspecified material");
@@ -96,8 +86,7 @@ Example questions to ask:
 export async function POST(req: NextRequest) {
   try {
     const openai = new OpenAI();
-    const supabase = await createClient();
-        const user = await getAuthUser();
+    const user = await getAuthUser();
     if (!user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
@@ -106,28 +95,54 @@ export async function POST(req: NextRequest) {
     const { session_id, user_reply } = body;
 
     if (!session_id || !user_reply?.trim()) {
-      return NextResponse.json({ error: "session_id and user_reply are required" }, { status: 400 });
+      return NextResponse.json(
+        { error: "session_id and user_reply are required" },
+        { status: 400 }
+      );
     }
 
     const serviceSupabase = createServiceClient();
 
-    // Load the session
-    const { data: session } = await serviceSupabase
-      .from("intake_sessions")
-      .select("*")
-      .eq("id", session_id)
-      .eq("clerk_user_id", user.id)
-      .single();
+    // ── Dual-layer session lookup ─────────────────────────────────────────────
+    let session: Record<string, unknown> | null = null;
+    let sessionSource: "db" | "memory" | null = null;
 
-    if (!session) {
-      return NextResponse.json({ error: "Session not found" }, { status: 404 });
+    // 1. Try Supabase first
+    try {
+      const { data, error } = await serviceSupabase
+        .from("intake_sessions")
+        .select("*")
+        .eq("id", session_id)
+        .eq("clerk_user_id", user.id)
+        .single();
+      if (!error && data) {
+        session = data;
+        sessionSource = "db";
+      }
+    } catch {
+      // Table may not exist — fall through to in-memory
     }
 
-    // Read fail count defensively — column may not exist yet (migration 012 pending)
+    // 2. Fall back to in-memory store
+    if (!session) {
+      const memSession = getIntakeSession(session_id);
+      if (memSession && memSession.clerk_user_id === user.id) {
+        session = memSession;
+        sessionSource = "memory";
+      }
+    }
+
+    // 3. Not found in either store
+    if (!session) {
+      return NextResponse.json(
+        { error: "Session expired. Please start over." },
+        { status: 404 }
+      );
+    }
+
+    // Read fail count defensively
     const currentFailCount: number =
-      typeof (session as Record<string, unknown>).clarify_fail_count === "number"
-        ? (session as Record<string, unknown>).clarify_fail_count as number
-        : 0;
+      typeof session.clarify_fail_count === "number" ? session.clarify_fail_count : 0;
 
     // If we've already failed twice, return the fallback form signal immediately
     if (currentFailCount >= 2) {
@@ -140,20 +155,18 @@ export async function POST(req: NextRequest) {
         updated_missing_information: session.missing_information ?? [],
         updated_confidence: session.confidence ?? 0,
         updated_mode: session.mode ?? "needs_clarification",
-        fit_envelope: (session as Record<string, unknown>).fit_envelope ?? null,
+        fit_envelope: session.fit_envelope ?? null,
         fallback_form: true,
       });
     }
 
-    // Normalize the user reply before sending to LLM
     const normalizedReply = normalizeUserReply(user_reply);
 
-    // Build context for the LLM — include ALL prior extracted state
     const stateContext = JSON.stringify({
       mode: session.mode,
       family_candidate: session.family_candidate,
       extracted_dimensions: session.extracted_dimensions,
-      fit_envelope: (session as Record<string, unknown>).fit_envelope ?? null,
+      fit_envelope: session.fit_envelope ?? null,
       inferred_scale: session.inferred_scale,
       inferred_object_type: session.inferred_object_type,
       missing_information: session.missing_information,
@@ -168,7 +181,6 @@ export async function POST(req: NextRequest) {
         role: "system",
         content: `Current interpretation state (PRESERVE all extracted_dimensions values): ${stateContext}`,
       },
-      // Include last 10 turns for full context
       ...history.slice(-10).map((m) => ({
         role: m.role as "user" | "assistant",
         content: m.content,
@@ -192,7 +204,6 @@ export async function POST(req: NextRequest) {
       const raw = completion.choices[0]?.message?.content ?? "{}";
       parsed = JSON.parse(raw);
 
-      // Validate the response has required fields
       if (typeof parsed.ready_to_generate !== "boolean") {
         throw new Error("Invalid LLM response: missing ready_to_generate");
       }
@@ -203,23 +214,23 @@ export async function POST(req: NextRequest) {
     }
 
     if (llmFailed) {
-      // Increment fail count — wrapped in try/catch so a missing column never crashes the user
       const newFailCount = currentFailCount + 1;
 
-      try {
-        await serviceSupabase
-          .from("intake_sessions")
-          .update({
-            clarify_fail_count: newFailCount,
-            updated_at: new Date().toISOString(),
-          } as Record<string, unknown>)
-          .eq("id", session_id);
-      } catch (dbErr) {
-        // Column may not exist yet — non-fatal, fail count tracked in-memory only
-        console.warn("[/api/intake/clarify] Could not persist clarify_fail_count:", dbErr);
+      // Update fail count in both stores
+      const updatedSession = { ...session, clarify_fail_count: newFailCount };
+      setIntakeSession(session_id, updatedSession);
+
+      if (sessionSource === "db") {
+        try {
+          await serviceSupabase
+            .from("intake_sessions")
+            .update({ clarify_fail_count: newFailCount, updated_at: new Date().toISOString() })
+            .eq("id", session_id);
+        } catch {
+          // Non-fatal
+        }
       }
 
-      // Determine the most important missing field to ask about
       const missing = (session.missing_information as string[]) ?? [];
       const dims = (session.extracted_dimensions as Record<string, number>) ?? {};
 
@@ -245,19 +256,17 @@ export async function POST(req: NextRequest) {
         updated_missing_information: missing,
         updated_confidence: session.confidence ?? 0,
         updated_mode: session.mode ?? "needs_clarification",
-        fit_envelope: (session as Record<string, unknown>).fit_envelope ?? null,
+        fit_envelope: session.fit_envelope ?? null,
         fallback_form: fallbackForm,
       });
     }
 
     // ── Success path ──────────────────────────────────────────────────────────
-    // Merge dimensions (NEVER drop prior values)
     const mergedDimensions = {
       ...(session.extracted_dimensions as Record<string, number> ?? {}),
       ...(parsed.updated_dimensions as Record<string, number> ?? {}),
     };
 
-    // Update the session with all new state
     const updatedHistory = [
       ...history,
       { role: "user", content: user_reply },
@@ -273,31 +282,35 @@ export async function POST(req: NextRequest) {
       mode: parsed.updated_mode ?? session.mode,
       assistant_message: parsed.assistant_message ?? session.assistant_message,
       conversation_history: updatedHistory,
+      clarify_fail_count: 0,
       updated_at: new Date().toISOString(),
     };
 
-    // Store fit_envelope if present
     if (parsed.fit_envelope) {
       updatePayload.fit_envelope = parsed.fit_envelope;
     }
 
-    // Reset fail count on success — wrapped in try/catch so a missing column never crashes
-    try {
-      await serviceSupabase
-        .from("intake_sessions")
-        .update({ ...updatePayload, clarify_fail_count: 0 })
-        .eq("id", session_id);
-    } catch (dbErr) {
-      // If clarify_fail_count column doesn't exist, retry without it
-      console.warn("[/api/intake/clarify] DB update with fail_count failed, retrying without:", dbErr);
+    // Update in-memory store
+    setIntakeSession(session_id, { ...session, ...updatePayload });
+
+    // Update DB if session came from there
+    if (sessionSource === "db") {
       try {
         await serviceSupabase
           .from("intake_sessions")
-          .update(updatePayload)
+          .update({ ...updatePayload, clarify_fail_count: 0 })
           .eq("id", session_id);
-      } catch (dbErr2) {
-        // Non-fatal — session state may be stale but the response is still valid
-        console.error("[/api/intake/clarify] DB update failed:", dbErr2);
+      } catch (dbErr) {
+        // Try without clarify_fail_count if column missing
+        try {
+          const { clarify_fail_count: _fc, ...payloadWithoutFc } = updatePayload as Record<string, unknown> & { clarify_fail_count: unknown };
+          await serviceSupabase
+            .from("intake_sessions")
+            .update(payloadWithoutFc)
+            .eq("id", session_id);
+        } catch (dbErr2) {
+          console.error("[/api/intake/clarify] DB update failed:", dbErr2);
+        }
       }
     }
 

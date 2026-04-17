@@ -6,25 +6,30 @@
  * a structured InterpretationResult that classifies the request into a
  * creation mode and extracts as much information as possible.
  *
- * This is the core of the Universal Input Composer pipeline.
+ * Session storage strategy (dual-layer):
+ * 1. Primary: Supabase intake_sessions table (if it exists)
+ * 2. Fallback: In-memory Map via lib/intake-session-store
+ *
+ * The session_id is ALWAYS returned in the response so ClarificationChat
+ * can pass it to /api/intake/clarify.
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
 import { createServiceClient } from "@/lib/supabase/service";
 import OpenAI from "openai";
 import { getAuthUser } from "@/lib/auth";
-
+import { randomUUID } from "crypto";
+import { setIntakeSession } from "@/lib/intake-session-store";
 
 // Supported interpretation modes
 const INTERPRETATION_MODES = [
-  "parametric_part",          // engineering-style part with dimensions
-  "image_to_relief",          // flat relief/plaque from image
-  "image_to_replica",         // simplified 3D replica inspired by image
-  "svg_to_extrusion",         // SVG path extruded into 3D
-  "document_to_model_reference", // document used as reference for a part
-  "concept_invention",        // free-form concept without clear dimensions
-  "needs_clarification",      // not enough information to proceed
+  "parametric_part",
+  "image_to_relief",
+  "image_to_replica",
+  "svg_to_extrusion",
+  "document_to_model_reference",
+  "concept_invention",
+  "needs_clarification",
 ] as const;
 
 type InterpretationMode = (typeof INTERPRETATION_MODES)[number];
@@ -91,8 +96,7 @@ Rules:
 export async function POST(req: NextRequest) {
   try {
     const openai = new OpenAI();
-    const supabase = await createClient();
-        const user = await getAuthUser();
+    const user = await getAuthUser();
     if (!user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
@@ -119,7 +123,6 @@ export async function POST(req: NextRequest) {
     // Build the user message content (multimodal)
     const userContent: OpenAI.Chat.ChatCompletionContentPart[] = [];
 
-    // Add text
     const combinedText = [
       text,
       voice_transcript ? `[Voice transcript: ${voice_transcript}]` : null,
@@ -131,7 +134,6 @@ export async function POST(req: NextRequest) {
       userContent.push({ type: "text", text: combinedText });
     }
 
-    // Add images (only actual image types go to vision)
     const imageFiles = files.filter(
       (f) =>
         f.type.startsWith("image/") &&
@@ -145,7 +147,6 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // Add document/SVG descriptions as text
     const docFiles = files.filter(
       (f) => !f.type.startsWith("image/") || f.type === "image/svg+xml"
     );
@@ -162,11 +163,8 @@ export async function POST(req: NextRequest) {
 
     messages.push({ role: "user", content: userContent });
 
-    // Choose model based on whether we have images
-    const model = imageFiles.length > 0 ? "gpt-4.1-mini" : "gpt-4.1-mini";
-
     const completion = await openai.chat.completions.create({
-      model,
+      model: "gpt-4.1-mini",
       messages,
       temperature: 0.1,
       max_tokens: 600,
@@ -184,12 +182,10 @@ export async function POST(req: NextRequest) {
       };
     }
 
-    // Validate mode
     if (!INTERPRETATION_MODES.includes(parsed.mode as InterpretationMode)) {
       parsed.mode = "needs_clarification";
     }
 
-    // Build file interpretations
     const fileInterpretations: FileInterpretation[] = files.map((f) => {
       const isImage = f.type.startsWith("image/") && f.type !== "image/svg+xml";
       const isSvg = f.type === "image/svg+xml";
@@ -206,53 +202,65 @@ export async function POST(req: NextRequest) {
       };
     });
 
-    // Upsert intake session
-    let activeSessionId = session_id;
-    if (!activeSessionId) {
-      const { data: newSession } = await serviceSupabase
-        .from("intake_sessions")
-        .insert({
-          clerk_user_id: user.id,
-          mode: parsed.mode,
-          family_candidate: parsed.family_candidate ?? null,
-          extracted_dimensions: parsed.extracted_dimensions ?? {},
-          inferred_scale: parsed.inferred_scale ?? null,
-          inferred_object_type: parsed.inferred_object_type ?? null,
-          missing_information: parsed.missing_information ?? [],
-          assistant_message: parsed.assistant_message ?? "",
-          preview_strategy: parsed.preview_strategy ?? null,
-          confidence: parsed.confidence ?? 0,
-          conversation_history: [
-            ...conversation_history,
-            { role: "user", content: combinedText || "(file upload)" },
-            { role: "assistant", content: parsed.assistant_message ?? "" },
-          ],
-          status: "active",
-        })
-        .select("id")
-        .single();
-      activeSessionId = newSession?.id;
-    } else {
-      await serviceSupabase
-        .from("intake_sessions")
-        .update({
-          mode: parsed.mode,
-          family_candidate: parsed.family_candidate ?? null,
-          extracted_dimensions: parsed.extracted_dimensions ?? {},
-          inferred_scale: parsed.inferred_scale ?? null,
-          inferred_object_type: parsed.inferred_object_type ?? null,
-          missing_information: parsed.missing_information ?? [],
-          assistant_message: parsed.assistant_message ?? "",
-          preview_strategy: parsed.preview_strategy ?? null,
-          confidence: parsed.confidence ?? 0,
-          updated_at: new Date().toISOString(),
-          conversation_history: [
-            ...conversation_history,
-            { role: "user", content: combinedText || "(file upload)" },
-            { role: "assistant", content: parsed.assistant_message ?? "" },
-          ],
-        })
-        .eq("id", activeSessionId);
+    // ── Session state to persist ──────────────────────────────────────────────
+    const sessionData = {
+      clerk_user_id: user.id,
+      mode: parsed.mode,
+      family_candidate: parsed.family_candidate ?? null,
+      extracted_dimensions: parsed.extracted_dimensions ?? {},
+      inferred_scale: parsed.inferred_scale ?? null,
+      inferred_object_type: parsed.inferred_object_type ?? null,
+      missing_information: parsed.missing_information ?? [],
+      assistant_message: parsed.assistant_message ?? "",
+      preview_strategy: parsed.preview_strategy ?? null,
+      confidence: parsed.confidence ?? 0,
+      conversation_history: [
+        ...conversation_history,
+        { role: "user", content: combinedText || "(file upload)" },
+        { role: "assistant", content: parsed.assistant_message ?? "" },
+      ],
+      status: "active",
+    };
+
+    // ── Dual-layer session storage ────────────────────────────────────────────
+    // Generate a session ID upfront so we always have one to return
+    const newSessionId = randomUUID();
+    let activeSessionId = session_id ?? newSessionId;
+
+    // 1. Try Supabase (primary)
+    let dbSuccess = false;
+    try {
+      if (!session_id) {
+        const { data: newSession, error } = await serviceSupabase
+          .from("intake_sessions")
+          .insert({ ...sessionData, id: activeSessionId })
+          .select("id")
+          .single();
+        if (!error && newSession?.id) {
+          activeSessionId = newSession.id;
+          dbSuccess = true;
+        }
+      } else {
+        const { error } = await serviceSupabase
+          .from("intake_sessions")
+          .update({
+            ...sessionData,
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", session_id);
+        if (!error) {
+          dbSuccess = true;
+        }
+      }
+    } catch (dbErr) {
+      console.warn("[/api/intake/interpret] DB session storage failed, using in-memory fallback:", dbErr);
+    }
+
+    // 2. Always write to in-memory store as well (ensures clarify can find it)
+    setIntakeSession(activeSessionId, { ...sessionData, id: activeSessionId });
+
+    if (!dbSuccess) {
+      console.info(`[/api/intake/interpret] Session ${activeSessionId} stored in-memory only`);
     }
 
     const result: InterpretationResult = {
@@ -266,7 +274,7 @@ export async function POST(req: NextRequest) {
       preview_strategy: parsed.preview_strategy ?? null,
       confidence: parsed.confidence ?? 0,
       file_interpretations: fileInterpretations,
-      session_id: activeSessionId ?? "",
+      session_id: activeSessionId,
     };
 
     return NextResponse.json(result);
