@@ -282,7 +282,8 @@ export async function POST(request: NextRequest) {
         session_id: session.id,
         status: "draft",
         title: `Invention: ${problemText.slice(0, 60)}`,
-        description: inventionResult.reasoning,
+        requested_family: inventionResult.family,
+        selected_family: inventionResult.family,
         capability_id: `${inventionResult.family}_v1`,
         truth_label: truthGateResult.truth_label,
         truth_result: truthGateReceipt,
@@ -306,11 +307,9 @@ export async function POST(request: NextRequest) {
         job_id: job.id,
         family: inventionResult.family,
         units: "mm",
-        dimensions: inventionResult.parameters,
-        assumptions: [`Auto-invented from problem: "${problemText.slice(0, 100)}"`],
-        missing_fields: [],
-        confidence: inventionResult.confidence,
-        source: "invention_engine",
+        dimensions_json: inventionResult.parameters,
+        assumptions_json: [`Auto-invented from problem: "${problemText.slice(0, 100)}"`],
+        missing_fields_json: [],
       })
       .select("id")
       .single();

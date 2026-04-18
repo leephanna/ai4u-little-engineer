@@ -94,12 +94,11 @@ export async function POST(req: NextRequest) {
     const scaleConfig = SCALE_MAP[scale];
     const vplPreview = VPL_PREVIEW[quality];
 
-    // ── Auth check ──────────────────────────────────────────────
+    // ── Auth check (guest-friendly: demo works without login) ────
     const supabase = await createClient();
-        const user = await getAuthUser();
-    if (!user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    const authUser = await getAuthUser();
+    // Allow unauthenticated users to run the demo — use a stable demo user ID
+    const user = authUser ?? { id: "demo-guest", email: "demo@ai4u.app" };
 
     const serviceSupabase = createServiceClient();
 

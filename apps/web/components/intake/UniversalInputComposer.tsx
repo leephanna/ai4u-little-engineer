@@ -39,6 +39,8 @@ interface Props {
   examplePrompts?: string[];
   isLoading?: boolean;
   submitLabel?: string;
+  /** Pre-fill the textarea and auto-submit once on mount (used by Gallery "Make This") */
+  initialValue?: string;
 }
 
 const ACCEPTED_TYPES = [
@@ -68,8 +70,9 @@ export default function UniversalInputComposer({
   examplePrompts = [],
   isLoading = false,
   submitLabel = "Create →",
+  initialValue,
 }: Props) {
-  const [text, setText] = useState("");
+  const [text, setText] = useState(initialValue ?? "");
   const [files, setFiles] = useState<UploadedFile[]>([]);
   const [isDragging, setIsDragging] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
@@ -81,6 +84,20 @@ export default function UniversalInputComposer({
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const autoSubmittedRef = useRef(false);
+
+  // Auto-submit once on mount when initialValue is provided
+  useEffect(() => {
+    if (initialValue && !autoSubmittedRef.current) {
+      autoSubmittedRef.current = true;
+      // Small delay so the component is fully mounted before submitting
+      const t = setTimeout(() => {
+        onSubmit({ text: initialValue.trim(), files: [], voiceTranscript: undefined });
+      }, 150);
+      return () => clearTimeout(t);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Auto-resize textarea
   useEffect(() => {

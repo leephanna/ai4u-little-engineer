@@ -38,6 +38,8 @@ interface Props {
   printerName?: string;
   material?: string;
   examplePrompts?: string[];
+  /** Pre-fill the input and auto-submit on mount (used by Gallery "Make This" via ?q= param) */
+  initialPrompt?: string;
 }
 
 const CONSUMER_EXAMPLES = [
@@ -52,6 +54,7 @@ export default function UniversalCreatorFlow({
   printerName,
   material = "PLA",
   examplePrompts = CONSUMER_EXAMPLES,
+  initialPrompt,
 }: Props) {
   const router = useRouter();
   const [phase, setPhase] = useState<FlowPhase>("idle");
@@ -266,6 +269,7 @@ export default function UniversalCreatorFlow({
           examplePrompts={examplePrompts}
           placeholder="Describe what you want to create, upload a photo or sketch, or use your voice…"
           submitLabel="Interpret →"
+          initialValue={initialPrompt}
         />
       )}
 

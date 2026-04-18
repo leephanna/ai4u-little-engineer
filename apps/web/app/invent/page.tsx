@@ -2,30 +2,19 @@
  * /invent
  *
  * Universal Creation Engine UI.
- * User types, speaks, uploads, or sketches an idea → AI interprets it →
- * CAD pipeline generates the STL → result page shows the design with
- * save / publish / sell actions.
- *
- * Gap 4 fix: replaced InventionForm with UniversalCreatorFlow so the
- * /invent route renders the full multimodal intake experience.
+ * Reads optional ?q= search param and passes it as initialPrompt to
+ * UniversalCreatorFlow so Gallery "Make This" buttons auto-fill + auto-submit.
  */
 
-import { createClient } from "@/lib/supabase/server";
-import { redirect } from "next/navigation";
+"use client";
+
+import { Suspense } from "react";
+import { useSearchParams } from "next/navigation";
 import UniversalCreatorFlow from "@/components/intake/UniversalCreatorFlow";
-import { getAuthUser } from "@/lib/auth";
 
-export const metadata = {
-  title: "Invent a Design | Little Engineer",
-  description: "Describe a problem and let AI design a 3D-printable solution.",
-};
-
-export default async function InventPage() {
-  const supabase = await createClient();
-    const user = await getAuthUser();
-  if (!user) {
-    redirect("/auth/login?redirect=/invent");
-  }
+function InventContent() {
+  const searchParams = useSearchParams();
+  const q = searchParams.get("q") ?? searchParams.get("prompt") ?? undefined;
 
   return (
     <div className="min-h-screen bg-steel-950">
@@ -38,8 +27,22 @@ export default async function InventPage() {
             let you save, publish, or sell it.
           </p>
         </div>
-        <UniversalCreatorFlow />
+        <UniversalCreatorFlow initialPrompt={q} />
       </div>
     </div>
+  );
+}
+
+export default function InventPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="min-h-screen bg-steel-950 flex items-center justify-center">
+          <div className="w-6 h-6 border-2 border-brand-400 border-t-transparent rounded-full animate-spin" />
+        </div>
+      }
+    >
+      <InventContent />
+    </Suspense>
   );
 }
