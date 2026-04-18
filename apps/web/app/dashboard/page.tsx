@@ -4,7 +4,7 @@
 
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { createClient } from "@/lib/supabase/server";
+import { createServiceClient } from "@/lib/supabase/service";
 import { SystemStatusBar } from "@/components/SystemStatusBar";
 import type { Job } from "@/lib/types";
 import { JOB_STATUS_COLORS, JOB_STATUS_LABELS } from "@/lib/types";
@@ -98,8 +98,8 @@ function JobCard({ job }: { job: JobWithEstimate }) {
 }
 
 export default async function DashboardPage() {
-  const supabase = await createClient();
-    const user = await getAuthUser();
+  const user = await getAuthUser();
+  const supabase = createServiceClient();
   if (!user) redirect("/sign-in");
 
   const { data: jobs, error } = await supabase
@@ -210,14 +210,13 @@ export default async function DashboardPage() {
             <span className="text-2xl">🖨️</span>
             <span className="text-sm font-medium text-steel-200">Printer Profile</span>
           </Link>
-          <div
-            className="card flex flex-col items-center gap-2 py-4 text-center opacity-50 cursor-not-allowed"
-            title="Paid plans coming soon"
+          <Link
+            href="/pricing"
+            className="card flex flex-col items-center gap-2 py-4 hover:border-brand-700 transition-all cursor-pointer text-center"
           >
             <span className="text-2xl">💳</span>
-            <span className="text-sm font-medium text-steel-400">Plans</span>
-            <span className="text-xs text-steel-600">Coming soon</span>
-          </div>
+            <span className="text-sm font-medium text-steel-200">Plans</span>
+          </Link>
           <div className="card flex flex-col items-center gap-2 py-4 text-center">
             <span className="text-2xl">{bypass.bypassed ? "♾️" : "📊"}</span>
             <span className="text-sm font-medium text-steel-200">

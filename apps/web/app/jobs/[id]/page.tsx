@@ -18,7 +18,7 @@
  *   ❌ InventionProtectionPanel → /api/jobs/[id]/patent-summary does not exist
  *   ❌ TagEditor           → persists but does not display correctly
  */
-import { createClient } from "@/lib/supabase/server";
+import { createServiceClient } from "@/lib/supabase/service";
 import { redirect, notFound } from "next/navigation";
 import Link from "next/link";
 import type { Job, PartSpec, CadRun, Artifact, ValidationReport } from "@/lib/types";
@@ -49,9 +49,8 @@ interface PageProps {
 
 export default async function JobDetailPage({ params }: PageProps) {
   const { id } = await params;
-  const supabase = await createClient();
-
-    const user = await getAuthUser();
+  const user = await getAuthUser();
+  const supabase = createServiceClient();
   if (!user) redirect("/sign-in");
 
   // Fetch job

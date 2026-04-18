@@ -1,13 +1,13 @@
 /**
  * Intake session store — DB-primary, memory-fallback.
  *
- * PRIMARY:  Supabase intake_sessions table (persistent across serverless instances)
+ * PRIMARY:  Supabase `intake_sessions` table (persistent across serverless instances)
+ *           Schema: { id UUID, session_id TEXT UNIQUE, clerk_user_id TEXT, state JSONB,
+ *                     created_at TIMESTAMPTZ, updated_at TIMESTAMPTZ }
  * FALLBACK: In-memory Map (local dev when DB is unavailable, or as a fast cache)
  *
- * The DB table uses `id UUID` as primary key. The session_id passed around
- * by the routes IS that UUID.
- *
- * All functions are async to support the DB path.
+ * The entire session state is stored as a single JSONB blob in the `state` column.
+ * This matches the actual live DB schema (created by migration 016).
  */
 
 import { createServiceClient } from "@/lib/supabase/service";
@@ -47,34 +47,27 @@ export async function setIntakeSession(
     expiresAt: Date.now() + SESSION_TTL_MS,
   });
 
-  // Always write to DB (primary)
+  // Always write to DB (primary) — stores entire state as JSONB blob in `state` column
   try {
     const supabase = createServiceClient();
-    const resolvedClerkUserId = clerkUserId ?? (state.clerk_user_id as string | undefined) ?? null;
+    const resolvedClerkUserId =
+      clerkUserId ?? (state.clerk_user_id as string | undefined) ?? null;
 
-    await supabase
+    const { error } = await supabase
       .from("intake_sessions")
       .upsert(
         {
           session_id: sessionId,
           clerk_user_id: resolvedClerkUserId,
-          mode: state.mode ?? null,
-          family_candidate: state.family_candidate ?? null,
-          extracted_dimensions: state.extracted_dimensions ?? {},
-          fit_envelope: state.fit_envelope ?? null,
-          inferred_scale: state.inferred_scale ?? null,
-          inferred_object_type: state.inferred_object_type ?? null,
-          missing_information: state.missing_information ?? [],
-          assistant_message: state.assistant_message ?? null,
-          preview_strategy: state.preview_strategy ?? null,
-          confidence: state.confidence ?? 0,
-          clarify_fail_count: state.clarify_fail_count ?? 0,
-          conversation_history: state.conversation_history ?? [],
-          status: state.status ?? "active",
+          state: state,
           updated_at: new Date().toISOString(),
         },
         { onConflict: "session_id" }
       );
+
+    if (error) {
+      console.warn("[intake-session-store] DB upsert error:", error.message);
+    }
   } catch (dbErr) {
     // Non-fatal: memory store already has the session
     console.warn("[intake-session-store] DB write failed, memory-only:", dbErr);
@@ -104,17 +97,23 @@ export async function getIntakeSession(
     const supabase = createServiceClient();
     const { data, error } = await supabase
       .from("intake_sessions")
-      .select("*")
+      .select("state, clerk_user_id, session_id")
       .eq("session_id", sessionId)
       .single();
 
     if (!error && data) {
+      // The state is stored as a JSONB blob in the `state` column
+      const sessionState = (data.state as Record<string, unknown>) ?? {};
+      // Ensure clerk_user_id is accessible at the top level
+      if (data.clerk_user_id && !sessionState.clerk_user_id) {
+        sessionState.clerk_user_id = data.clerk_user_id;
+      }
       // Warm the local cache
       memoryStore.set(sessionId, {
-        data: data as Record<string, unknown>,
+        data: sessionState,
         expiresAt: Date.now() + SESSION_TTL_MS,
       });
-      return data as Record<string, unknown>;
+      return sessionState;
     }
   } catch (dbErr) {
     console.warn("[intake-session-store] DB read failed:", dbErr);
