@@ -33,7 +33,7 @@ jobs:
         run: |
           pip install --upgrade pip
           # Install test dependencies only (skip build123d for CI speed)
-          pip install fastapi uvicorn pydantic pydantic-settings httpx pytest pytest-asyncio
+          pip install fastapi uvicorn pydantic pydantic-settings httpx pytest pytest-asyncio trimesh==4.4.1 numpy
 
       - name: Run tests (no build123d)
         working-directory: apps/cad-worker
