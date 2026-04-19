@@ -37,6 +37,14 @@ export async function GET(
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
+    // Guard: storage_path must be present
+    if (!artifact.storage_path) {
+      return NextResponse.json(
+        { error: "Artifact file not yet available — generation may still be in progress" },
+        { status: 404 }
+      );
+    }
+
     // Generate signed URL (valid for 60 seconds)
     const serviceClient = await createServiceClient();
     const { data: signedUrl, error: signedError } = await serviceClient.storage

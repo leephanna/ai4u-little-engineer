@@ -76,11 +76,13 @@ async def generate_cad(request: GenerationRequest) -> GenerationResult:
                 status_code=400,
                 detail=f"Part family '{spec.family}' is PARTIAL: {partial[spec.family]}",
             )
+        from app.generators import list_supported_families
+        supported = ", ".join(sorted(list_supported_families()))
         raise HTTPException(
             status_code=400,
             detail=(
                 f"Unsupported part family: '{spec.family}'. "
-                f"Supported: spacer, l_bracket, u_bracket, hole_plate, cable_clip, enclosure"
+                f"Supported: {supported}"
             ),
         )
 
