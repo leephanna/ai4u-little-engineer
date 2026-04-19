@@ -123,6 +123,9 @@ function validateInventionResult(result: InventionResult): string | null {
 // Main handler
 // ─────────────────────────────────────────────────────────────
 
+// ── Commit SHA baked in at build time ────────────────────────────────────────
+const COMMIT_SHA = process.env.VERCEL_GIT_COMMIT_SHA ?? "local";
+
 export async function POST(request: NextRequest) {
   const openai = new OpenAI({
     apiKey: process.env.OPENAI_API_KEY ?? "placeholder",
@@ -132,11 +135,17 @@ export async function POST(request: NextRequest) {
     const supabase = await createClient();
     const serviceSupabase = createServiceClient();
 
+    // ── Owner probe bypass (ADMIN_BYPASS_KEY header) ──────────────────────────
+    const probeKey = request.headers.get("x-admin-bypass-key");
+    const adminBypassKey = process.env.ADMIN_BYPASS_KEY;
+    const isOwnerProbe = adminBypassKey && probeKey === adminBypassKey;
+
     // Auth check
-        const user = await getAuthUser();
-    if (!user) {
+    const user = await getAuthUser();
+    if (!user && !isOwnerProbe) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
+    const effectiveUser = user ?? { id: "owner-probe", email: "owner@ai4u.app" };
 
     // Parse request body
     // Accepts two payload shapes:
@@ -245,7 +254,7 @@ export async function POST(request: NextRequest) {
     if (truthGateResult.verdict === "REJECT" || truthGateResult.verdict === "CLARIFY") {
       // Log the rejected invention
       await serviceSupabase.from("invention_requests").insert({
-        clerk_user_id: user.id,
+        clerk_user_id: effectiveUser.id,
         problem_text: problemText,
         family: inventionResult.family ?? null,
         parameters: inventionResult.parameters ?? {},
@@ -275,10 +284,10 @@ export async function POST(request: NextRequest) {
     // ── Step 3: Create session → job → part_spec ────────────────
 
     // [STEP: session-create]
-    console.log(`[invent] step=session-create clerk_user_id=${user.id}`);
+    console.log(`[invent] step=session-create clerk_user_id=${effectiveUser.id}`);
     const { data: session, error: sessionError } = await serviceSupabase
       .from("sessions")
-      .insert({ clerk_user_id: user.id, started_at: new Date().toISOString() })
+      .insert({ clerk_user_id: effectiveUser.id, started_at: new Date().toISOString() })
       .select("id")
       .single();
     if (sessionError || !session) {
@@ -291,11 +300,11 @@ export async function POST(request: NextRequest) {
     console.log(`[invent] OK step=session-create session_id=${session.id}`);
 
     // [STEP: job-insert]
-    console.log(`[invent] step=job-insert clerk_user_id=${user.id} session_id=${session.id}`);
+    console.log(`[invent] step=job-insert clerk_user_id=${effectiveUser.id} session_id=${session.id}`);
     const { data: job, error: jobError } = await serviceSupabase
       .from("jobs")
       .insert({
-        clerk_user_id: user.id,
+        clerk_user_id: effectiveUser.id,
         session_id: session.id,
         status: "draft",
         title: `Invention: ${problemText.slice(0, 60)}`,
@@ -345,18 +354,18 @@ export async function POST(request: NextRequest) {
     // SELECT-then-INSERT pattern (avoids onConflict which requires a UNIQUE CONSTRAINT,
     // not just a unique index — the profiles table only has a unique index on clerk_user_id).
     // NOTE: public.profiles has NO email column. Do NOT add email here.
-    console.log(`[invent] step=profile-bootstrap clerk_user_id=${user.id}`);
+    console.log(`[invent] step=profile-bootstrap clerk_user_id=${effectiveUser.id}`);
     const { data: existingProfile } = await serviceSupabase
       .from("profiles")
       .select("clerk_user_id")
-      .eq("clerk_user_id", user.id)
+      .eq("clerk_user_id", effectiveUser.id)
       .maybeSingle();
     if (!existingProfile) {
       const { error: insertProfileError } = await serviceSupabase
         .from("profiles")
         .insert({
           id: crypto.randomUUID(),  // profiles.id has no DEFAULT — must supply explicitly
-          clerk_user_id: user.id,
+          clerk_user_id: effectiveUser.id,
           plan: "free",
           generations_this_month: 0,
           generation_month: new Date().toISOString().slice(0, 7),
@@ -371,11 +380,11 @@ export async function POST(request: NextRequest) {
     console.log(`[invent] OK step=profile-bootstrap`);
 
     // [STEP: profile-fetch]
-    console.log(`[invent] step=profile-fetch clerk_user_id=${user.id}`);
+    console.log(`[invent] step=profile-fetch clerk_user_id=${effectiveUser.id}`);
     const { data: profile, error: profileFetchError } = await serviceSupabase
       .from("profiles")
       .select("plan, generations_this_month, generation_month")
-      .eq("clerk_user_id", user.id)
+      .eq("clerk_user_id", effectiveUser.id)
       .single();
     if (profileFetchError) {
       console.error("[invent] WARN step=profile-fetch", JSON.stringify(profileFetchError));
@@ -392,9 +401,9 @@ export async function POST(request: NextRequest) {
     const limit = limits[plan] ?? 3;
 
     // Access policy bypass check
-    const bypass = await shouldBypassLimits(user.email);
+    const bypass = await shouldBypassLimits(effectiveUser.email);
     if (bypass.bypassed) {
-      console.log(`[invent] bypass active — reason: ${bypass.reason} — user: ${user.email}`);
+      console.log(`[invent] bypass active — reason: ${bypass.reason} — user: ${effectiveUser.email}`);
     }
     if (!bypass.bypassed && limit !== null && generationsThisMonth >= limit) {
       return NextResponse.json(
@@ -438,14 +447,14 @@ export async function POST(request: NextRequest) {
       .eq("id", job.id);
 
     // [STEP: counter-update]
-    console.log(`[invent] step=counter-update clerk_user_id=${user.id} new_count=${generationsThisMonth + 1}`);
+    console.log(`[invent] step=counter-update clerk_user_id=${effectiveUser.id} new_count=${generationsThisMonth + 1}`);
     await serviceSupabase
       .from("profiles")
       .update({
         generations_this_month: generationsThisMonth + 1,
         generation_month: currentMonth,
       })
-      .eq("clerk_user_id", user.id);
+      .eq("clerk_user_id", effectiveUser.id);
 
     // Trigger the pipeline
     let triggerRunId: string | null = null;
@@ -470,7 +479,7 @@ export async function POST(request: NextRequest) {
     const { data: inventionRecord } = await serviceSupabase
       .from("invention_requests")
       .insert({
-        clerk_user_id: user.id,
+        clerk_user_id: effectiveUser.id,
         problem_text: problemText,
         family: inventionResult.family,
         parameters: inventionResult.parameters,
