@@ -1,0 +1,45 @@
+{
+  "job_id": "3d20fdef-8e50-4fe4-a070-5744a3bf738f",
+  "family": "solid_block",
+  "family_correct": true,
+  "cad_run_id": "9c80fb72-7eb6-45ff-8402-02f312e0b942",
+  "trigger_run_id": "run_cmo68sm827zsc0nmwgczw3e59",
+  "parameters": {
+    "length": 5,
+    "width": 5,
+    "height": 5
+  },
+  "job_row": {
+    "id": "3d20fdef-8e50-4fe4-a070-5744a3bf738f",
+    "status": "awaiting_approval",
+    "requested_family": "solid_block",
+    "title": "Invention: Make a cube with 5mm sides. Don't ask for clarification. Jus",
+    "created_at": "2026-04-19T20:52:34.591051+00:00"
+  },
+  "cad_runs": [
+    {
+      "id": "9c80fb72-7eb6-45ff-8402-02f312e0b942",
+      "status": "success",
+      "generator_name": "solid_block",
+      "error_text": null,
+      "normalized_params_json": {
+        "width_mm": 5,
+        "height_mm": 5,
+        "length_mm": 5,
+        "chamfer_mm": 0,
+        "variant_type": "requested"
+      },
+      "started_at": "2026-04-19T20:52:38.59+00:00",
+      "ended_at": "2026-04-19T20:52:40.079+00:00"
+    }
+  ],
+  "cad_success": true,
+  "cad_status": "success",
+  "cad_params": {
+    "width_mm": 5,
+    "height_mm": 5,
+    "length_mm": 5,
+    "chamfer_mm": 0,
+    "variant_type": "requested"
+  }
+}
