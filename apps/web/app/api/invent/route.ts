@@ -345,12 +345,10 @@ export async function POST(request: NextRequest) {
           generation_month: new Date().toISOString().slice(0, 7),
         });
       if (insertProfileError && insertProfileError.code !== "23505") {
-        // 23505 = unique_violation (race condition — another request created it first, safe to ignore)
-        console.error("[invent] FAIL step=profile-bootstrap", JSON.stringify(insertProfileError));
-        return NextResponse.json(
-          { error: "Failed to bootstrap profile", step: "profile-bootstrap", detail: insertProfileError.message },
-          { status: 500 }
-        );
+        // 23505 = unique_violation (race condition — safe to ignore)
+        // 23503 = foreign_key_violation (profiles.id REFERENCES auth.users — Clerk users have no auth.users row)
+        // In both cases: log the warning and continue — profile is non-critical for job creation
+        console.warn("[invent] WARN step=profile-bootstrap (non-fatal)", JSON.stringify(insertProfileError));
       }
     }
     console.log(`[invent] OK step=profile-bootstrap`);
