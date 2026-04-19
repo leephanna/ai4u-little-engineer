@@ -279,7 +279,7 @@ class TestSimpleJigNormalizedParams:
 # ─────────────────────────────────────────────────────────────
 class TestNewGeneratorsRegistry:
     def test_all_new_generators_registered(self):
-        from app.generators import is_supported, list_supported_families
+        from app.generators import is_supported
         assert is_supported("flat_bracket")
         assert is_supported("standoff_block")
         assert is_supported("adapter_bushing")
@@ -296,8 +296,8 @@ class TestNewGeneratorsRegistry:
     def test_total_generator_count(self):
         from app.generators import list_supported_families
         families = list_supported_families()
-        # 6 original + 4 new = 10
-        assert len(families) == 10
+        # 6 original + 4 new + 1 canonical (solid_block) = 11
+        assert len(families) == 11
 
     def test_get_generator_returns_correct_name(self):
         from app.generators import get_generator

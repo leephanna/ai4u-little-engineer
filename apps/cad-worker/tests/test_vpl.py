@@ -11,14 +11,13 @@ Tests cover:
 import os
 import sys
 import struct
-import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from app.vpl.geometry_validator import validate_geometry, GeometryResult
 from app.vpl.heuristic_analyzer import analyze_heuristics, HeuristicResult
 from app.vpl.slicer_simulator import run_slicer, SlicerResult
-from app.vpl.score_calculator import calculate_score, ScoreResult
+from app.vpl.score_calculator import calculate_score
 from app.vpl import run_vpl
 
 

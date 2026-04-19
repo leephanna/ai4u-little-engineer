@@ -8,8 +8,6 @@ Covers:
 4. Gallery page — all 16 cards have valid prompts and categories
 5. Admin Daedalus page — receipt filtering and stats
 """
-import pytest
-import json
 import sys
 import os
 

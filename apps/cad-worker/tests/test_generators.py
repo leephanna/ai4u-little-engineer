@@ -7,9 +7,7 @@ Note: Full geometry generation tests require build123d to be installed.
 import pytest
 from app.generators.spacer import validate_params as spacer_validate, get_normalized_params as spacer_params
 from app.generators.l_bracket import validate_params as lbracket_validate, get_normalized_params as lbracket_params
-from app.generators.u_bracket import validate_params as ubracket_validate, get_normalized_params as ubracket_params
-from app.generators.hole_plate import validate_params as holeplate_validate, get_normalized_params as holeplate_params
-from app.generators.clip import validate_params as clip_validate, get_normalized_params as clip_params
+from app.generators.u_bracket import validate_params as ubracket_validate
 from app.schemas.part_spec import PartSpec
 
 
@@ -160,7 +158,7 @@ class TestPartSpecNormalization:
 
 class TestGeneratorRegistry:
     def test_supported_families(self):
-        from app.generators import list_supported_families, is_supported
+        from app.generators import list_supported_families
         families = list_supported_families()
         assert "spacer" in families
         assert "l_bracket" in families

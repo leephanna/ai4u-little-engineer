@@ -198,7 +198,6 @@ class TestSimpleJigSTLSize:
         """Generate a simple_jig and verify STL is under 500KB."""
         try:
             from app.generators.simple_jig import generate
-            from app.schemas.printer_profile import PrinterProfile
             stl_path = tmp_path / "jig.stl"
             dims = {
                 "length": 80.0,

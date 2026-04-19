@@ -9,7 +9,6 @@ These tests cover:
 """
 
 import pytest
-import json
 import math
 
 

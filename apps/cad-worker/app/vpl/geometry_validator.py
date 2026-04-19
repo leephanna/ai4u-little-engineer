@@ -7,12 +7,10 @@ face count, and non-manifold edges.
 """
 from __future__ import annotations
 
-import os
 from dataclasses import dataclass, field
 from typing import Optional
 
 import trimesh
-import numpy as np
 
 
 @dataclass

@@ -10,7 +10,6 @@ Tests for the Universal Intake system:
   - Artemis II demo configuration
 """
 
-import pytest
 import sys
 import os
 

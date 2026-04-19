@@ -20,7 +20,6 @@ Grades:
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Optional
 
 from .geometry_validator import GeometryResult
 from .slicer_simulator import SlicerResult
