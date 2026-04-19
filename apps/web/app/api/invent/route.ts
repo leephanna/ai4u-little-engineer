@@ -325,26 +325,32 @@ export async function POST(request: NextRequest) {
     // ── Step 4: Trigger CAD generation pipeline ─────────────────
 
     // [STEP: profile-bootstrap]
-    // Safe upsert — no-op if row already exists.
+    // SELECT-then-INSERT pattern (avoids onConflict which requires a UNIQUE CONSTRAINT,
+    // not just a unique index — the profiles table only has a unique index on clerk_user_id).
     // NOTE: public.profiles has NO email column. Do NOT add email here.
     console.log(`[invent] step=profile-bootstrap clerk_user_id=${user.id}`);
-    const { error: upsertError } = await serviceSupabase
+    const { data: existingProfile } = await serviceSupabase
       .from("profiles")
-      .upsert(
-        {
+      .select("clerk_user_id")
+      .eq("clerk_user_id", user.id)
+      .maybeSingle();
+    if (!existingProfile) {
+      const { error: insertProfileError } = await serviceSupabase
+        .from("profiles")
+        .insert({
           clerk_user_id: user.id,
           plan: "free",
           generations_this_month: 0,
           generation_month: new Date().toISOString().slice(0, 7),
-        },
-        { onConflict: "clerk_user_id", ignoreDuplicates: true }
-      );
-    if (upsertError) {
-      console.error("[invent] FAIL step=profile-bootstrap", JSON.stringify(upsertError));
-      return NextResponse.json(
-        { error: "Failed to bootstrap profile", step: "profile-bootstrap", detail: upsertError.message },
-        { status: 500 }
-      );
+        });
+      if (insertProfileError && insertProfileError.code !== "23505") {
+        // 23505 = unique_violation (race condition — another request created it first, safe to ignore)
+        console.error("[invent] FAIL step=profile-bootstrap", JSON.stringify(insertProfileError));
+        return NextResponse.json(
+          { error: "Failed to bootstrap profile", step: "profile-bootstrap", detail: insertProfileError.message },
+          { status: 500 }
+        );
+      }
     }
     console.log(`[invent] OK step=profile-bootstrap`);
 
