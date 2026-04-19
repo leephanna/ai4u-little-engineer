@@ -17,6 +17,7 @@ SUPPORTED_FAMILIES = [
     "enclosure",
     "adapter_bushing",
     "simple_jig",
+    "solid_block",
 ]
 
 SUPPORTED_UNITS = Literal["mm", "in"]
