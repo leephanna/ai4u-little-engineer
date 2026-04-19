@@ -42,21 +42,21 @@ import { getAuthUser } from "@/lib/auth";
 const SCALE_MAP = {
   small: {
     family: "spacer" as const,
-    parameters: { outer_diameter: 32, height: 120, inner_diameter: 0 },
+    parameters: { outer_diameter: 32, length: 120, inner_diameter: 0 },
     label: "Small Artemis II Rocket Body (12cm)",
     time: "~1.5h",
     filament: "~35g",
   },
   medium: {
     family: "spacer" as const,
-    parameters: { outer_diameter: 50, height: 200, inner_diameter: 0 },
+    parameters: { outer_diameter: 50, length: 200, inner_diameter: 0 },
     label: "Medium Artemis II Rocket Body (20cm)",
     time: "~3h",
     filament: "~70g",
   },
   display: {
     family: "spacer" as const,
-    parameters: { outer_diameter: 75, height: 320, inner_diameter: 0 },
+    parameters: { outer_diameter: 75, length: 320, inner_diameter: 0 },
     label: "Display Artemis II Rocket Body (32cm)",
     time: "~7h",
     filament: "~150g",
@@ -154,7 +154,7 @@ export async function POST(req: NextRequest) {
     // ── Build problem text (for audit records only) ─────────────────
     const problemText =
       `Artemis II rocket body — ${scaleConfig.label}. ` +
-      `Dimensions: ⌀${scaleConfig.parameters.outer_diameter}mm × H${scaleConfig.parameters.height}mm. ` +
+      `Dimensions: ⌀${scaleConfig.parameters.outer_diameter}mm × L${scaleConfig.parameters.length}mm. ` +
       `Material: ${material}. Quality: ${quality}. ` +
       `This is a showcase/demo print inspired by the Artemis II mission — not an official NASA model.`;
 
