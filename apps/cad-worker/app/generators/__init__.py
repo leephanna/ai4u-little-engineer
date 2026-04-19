@@ -8,6 +8,7 @@ from typing import Any, Dict
 # Import all generator modules
 from app.generators import spacer, l_bracket, u_bracket, hole_plate, clip, enclosure
 from app.generators import flat_bracket, standoff_block, adapter_bushing, simple_jig
+from app.generators import solid_block
 
 # Registry: family_name -> (generate_fn, get_normalized_params_fn, name, version)
 GENERATOR_REGISTRY: Dict[str, Dict[str, Any]] = {
@@ -80,6 +81,13 @@ GENERATOR_REGISTRY: Dict[str, Dict[str, Any]] = {
         "validate_params": simple_jig.validate_params,
         "name": simple_jig.GENERATOR_NAME,
         "version": simple_jig.GENERATOR_VERSION,
+    },
+    "solid_block": {
+        "generate": solid_block.generate,
+        "get_normalized_params": solid_block.get_normalized_params,
+        "validate_params": solid_block.validate_params,
+        "name": solid_block.GENERATOR_NAME,
+        "version": solid_block.GENERATOR_VERSION,
     },
 }
 

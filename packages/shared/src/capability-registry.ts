@@ -268,26 +268,29 @@ export const CAPABILITY_REGISTRY: CapabilityEntry[] = [
     usage_count: 0,
   },
 
-  // ── 6. standoff_block ─────────────────────────────────────────────────────
+  // ── 6. standoff_block ────────────────────────────────────────────────────────────────────────────────────────
   {
     family: "standoff_block",
     label: "Standoff Block / Riser",
     description:
-      "Rectangular block that creates a standoff distance between two surfaces, with optional through-hole.",
+      "Square-base block that creates a standoff distance between two surfaces, with a center through-hole.",
     route_type: "parametric",
     object_class: "structural",
     required_dimensions: [
-      { name: "length",        unit: "mm", min: 3,   max: 500, description: "Block length" },
-      { name: "width",         unit: "mm", min: 3,   max: 500, description: "Block width" },
+      // IMPORTANT: CAD worker generator (standoff_block.py) uses base_width + height.
+      // hole_diameter minimum is 1.5mm — no zero-hole solid block is supported.
+      { name: "base_width",    unit: "mm", min: 5,   max: 500, description: "Square base side length" },
       { name: "height",        unit: "mm", min: 3,   max: 500, description: "Block height (standoff distance)" },
-      { name: "hole_diameter", unit: "mm", min: 0,   max: 50,  description: "Through-hole diameter (0 = no hole)" },
+      { name: "hole_diameter", unit: "mm", min: 1.5, max: 50,  description: "Center through-hole diameter (min 1.5mm)" },
     ],
     optional_dimensions: [],
-    validation_rules: [],
+    validation_rules: [
+      { rule: "hole_diameter < base_width - 2.0", description: "Hole must leave at least 1mm wall on each side" },
+    ],
     question_strategy: {
-      primary_question: "What standoff height and footprint dimensions do you need?",
-      dimension_order: ["height", "length", "width", "hole_diameter"],
-      example_values: { length: 20, width: 20, height: 15, hole_diameter: 4 },
+      primary_question: "What standoff height, base width, and hole diameter do you need?",
+      dimension_order: ["base_width", "height", "hole_diameter"],
+      example_values: { base_width: 20, height: 15, hole_diameter: 3.2 },
     },
     generator_version: "1.0.0",
     maturity_level: "proven",
@@ -481,6 +484,37 @@ export const CAPABILITY_REGISTRY: CapabilityEntry[] = [
     reuse_eligible: false,
     degradation_policy: "concept_only",
     success_rate: 0.0,
+    usage_count: 0,
+  },
+
+  // ── 13. solid_block (true solid cube/rectangular prism) ──────────────────────────────
+  {
+    family: "solid_block",
+    label: "Solid Block / Cube",
+    description:
+      "True solid rectangular block or cube with no holes. Use for cubes, rectangular prisms, and solid blocks.",
+    route_type: "parametric",
+    object_class: "structural",
+    required_dimensions: [
+      { name: "length", unit: "mm", min: 1, max: 500, description: "Block length (X dimension)" },
+      { name: "width",  unit: "mm", min: 1, max: 500, description: "Block width (Y dimension)" },
+      { name: "height", unit: "mm", min: 1, max: 500, description: "Block height (Z dimension)" },
+    ],
+    optional_dimensions: [
+      { name: "chamfer", unit: "mm", min: 0, max: 50, description: "Edge chamfer size (0 = no chamfer)" },
+    ],
+    validation_rules: [],
+    question_strategy: {
+      primary_question: "What are the length, width, and height of the block?",
+      dimension_order: ["length", "width", "height"],
+      example_values: { length: 20, width: 20, height: 20 },
+    },
+    generator_version: "1.0.0",
+    maturity_level: "proven",
+    demo_eligible: false,
+    reuse_eligible: true,
+    degradation_policy: "reject",
+    success_rate: 0.99,
     usage_count: 0,
   },
 ];

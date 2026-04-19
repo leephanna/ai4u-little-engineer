@@ -24,6 +24,7 @@ export const MVP_PART_FAMILIES = [
   "standoff_block",
   "adapter_bushing",
   "simple_jig",
+  "solid_block",
 ] as const;
 
 export type MvpPartFamily = (typeof MVP_PART_FAMILIES)[number];
@@ -52,6 +53,7 @@ export const PART_FAMILY_LABELS: Record<PartFamily, string> = {
   enclosure:       "Enclosure / Box",
   adapter_bushing: "Adapter Bushing",
   simple_jig:      "Simple Jig / Alignment Fixture",
+  solid_block:     "Solid Block / Cube",
   gear:            "Spur Gear",
   propeller:       "Propeller / Impeller",
 };
@@ -68,7 +70,7 @@ export const PART_FAMILY_DESCRIPTIONS: Record<PartFamily, string> = {
   hole_plate:
     "Flat plate with a pattern of holes for mounting, alignment, or distribution.",
   standoff_block:
-    "Rectangular block that creates a standoff distance between two surfaces.",
+    "Square-base block with a center through-hole for standoff / riser applications.",
   cable_clip:
     "Clip for routing and securing cables, wires, or tubing.",
   enclosure:
@@ -77,6 +79,8 @@ export const PART_FAMILY_DESCRIPTIONS: Record<PartFamily, string> = {
     "Bushing or sleeve for adapting between different bore sizes or standards.",
   simple_jig:
     "Alignment fixture or jig for repeatable positioning during assembly or machining.",
+  solid_block:
+    "True solid rectangular block or cube with no holes. Use for cubes, rectangular prisms, and solid spacers.",
   gear:
     "Spur gear for power transmission and motion control.",
   propeller:
@@ -90,11 +94,14 @@ export const REQUIRED_DIMENSIONS: Record<PartFamily, string[]> = {
   l_bracket:       ["leg_a", "leg_b", "thickness", "width"],
   u_bracket:       ["pipe_od", "wall_thickness", "flange_width", "flange_length"],
   hole_plate:      ["length", "width", "thickness", "hole_count", "hole_diameter"],
-  standoff_block:  ["length", "width", "height", "hole_diameter"],
+  // standoff_block CAD generator uses base_width + height (not length/width/height)
+  standoff_block:  ["base_width", "height", "hole_diameter"],
   cable_clip:      ["cable_od", "wall_thickness", "base_width"],
   enclosure:       ["inner_length", "inner_width", "inner_height", "wall_thickness"],
   adapter_bushing: ["outer_diameter", "inner_diameter", "length"],
   simple_jig:      ["length", "width", "height"],
+  // solid_block: true solid rectangular block / cube — no hole required
+  solid_block:     ["length", "width", "height"],
   gear:            ["module", "teeth", "thickness"],
   propeller:       ["diameter", "pitch", "blades"],
 };
