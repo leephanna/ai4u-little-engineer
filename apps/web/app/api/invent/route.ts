@@ -338,6 +338,7 @@ export async function POST(request: NextRequest) {
       const { error: insertProfileError } = await serviceSupabase
         .from("profiles")
         .insert({
+          id: crypto.randomUUID(),  // profiles.id has no DEFAULT — must supply explicitly
           clerk_user_id: user.id,
           plan: "free",
           generations_this_month: 0,
