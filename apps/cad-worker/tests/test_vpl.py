@@ -60,6 +60,10 @@ def _make_cube_stl(path: str, size: float = 20.0) -> None:
 
 def _make_real_spacer_stl(path: str) -> None:
     """Generate a real spacer STL using the production generator."""
+    import importlib
+    import pytest
+    if importlib.util.find_spec("build123d") is None:
+        pytest.skip("build123d not installed — skipping real-geometry test")
     from app.generators.spacer import generate
     from app.exporters.stl_export import export_stl
     part = generate({"outer_diameter": 30.0, "inner_diameter": 10.0, "height": 15.0})
