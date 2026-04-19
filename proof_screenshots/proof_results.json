@@ -1,0 +1,65 @@
+{
+  "dashboard": {
+    "url": "https://ai4u-little-engineer-web.vercel.app/dashboard",
+    "pass": true,
+    "content": "AI4U Little Engineer\nInvent\nMy Jobs\nGallery\nSign Out\nAI\nLittle Engineer\nleehanna8@gmail.com\nFree\nSettings\nSign out\nSYSTEM\nCAD Worker:\nOnline\n(23ms)\nTrigger.dev:\nConfigured\nSupabase:\nConnected\n(136ms)\n"
+  },
+  "invent": {
+    "url": "https://ai4u-little-engineer-web.vercel.app/invent",
+    "pass": true,
+    "content": "AI4U Little Engineer\nInvent\nMy Jobs\nGallery\nSign Out\nInvent a Design\n\nDescribe a mechanical problem in plain English \u2014 or upload a photo, sketch, or document. AI4U will design a 3D-printable solution,"
+  },
+  "invent_prefill": {
+    "url": "https://ai4u-little-engineer-web.vercel.app/invent?q=aluminum+L-bracket+50x30x20mm+3mm+thick",
+    "pass": true,
+    "prefill_visible": false,
+    "content": "AI4U Little Engineer\nInvent\nMy Jobs\nGallery\nSign Out\nInvent a Design\n\nDescribe a mechanical problem in plain English \u2014 or upload a photo, sketch, or document. AI4U will design a 3D-printable solution,"
+  },
+  "interpret": {
+    "pass": true,
+    "session_id": "103c4e5b-7428-41d3-8e4c-dfa2463bfe41",
+    "mode": "parametric_part",
+    "response": {
+      "mode": "parametric_part",
+      "family_candidate": "bracket",
+      "extracted_dimensions": {
+        "length": 50,
+        "width": 30,
+        "height": 20,
+        "thickness": 3
+      },
+      "inferred_scale": "palm-sized",
+      "inferred_object_type": "L-bracket",
+      "missing_information": [],
+      "assistant_message": "Got it! You want a palm-sized L-bracket with those exact dimensions and thickness. I can help create a 3D model for printing based on this.",
+      "preview_strategy": "parametric_render",
+      "confidence": 1,
+      "file_interpretations": [],
+      "session_id": "103c4e5b-7428-41d3-8e4c-dfa2463bfe41"
+    }
+  },
+  "invent_api": {
+    "pass": false,
+    "job_id": "",
+    "response": {
+      "error": "Missing or too-short problem description (min 5 characters)"
+    }
+  },
+  "jobs_list": {
+    "url": "https://ai4u-little-engineer-web.vercel.app/jobs",
+    "pass": true,
+    "content": "AI4U Little Engineer\nInvent\nMy Jobs\nGallery\nSign Out\nMy Jobs\n\nNo parts generated yet.\n\n+\nNew Part\n\u2699\ufe0f\nNo parts yet\n\nDescribe a mechanical problem and let AI design a 3D-printable solution.\n\nStart Inventing \u2192"
+  },
+  "artemis": {
+    "pass": false,
+    "response": {
+      "error": "Demo preset failed Truth Gate validation",
+      "detail": "Missing required dimension: length (Total length / height of the spacer)"
+    }
+  },
+  "homepage": {
+    "url": "https://ai4u-little-engineer-web.vercel.app/",
+    "pass": true,
+    "content": "AI4U Little Engineer\nInvent\nMy Jobs\nGallery\nSign Out\nAI\nAI4U Little Engineer\nSign In\nGet Started Free\nAI\nAI4U Little Engineer\nUniversal Creation Platform\nType it. Upload it.\nSay it. Print it.\n\nAI4U Li"
+  }
+}

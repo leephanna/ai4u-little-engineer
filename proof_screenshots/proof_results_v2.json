@@ -1,0 +1,78 @@
+{
+  "dashboard": {
+    "url": "https://ai4u-little-engineer-web.vercel.app/dashboard",
+    "authenticated": true,
+    "pass": true,
+    "content_preview": "AI4U Little Engineer\nInvent\nMy Jobs\nGallery\nSign Out\nAI\nLittle Engineer\nleehanna8@gmail.com\nFree\nSettings\nSign out\nSYSTEM\nCAD Worker:\nOnline\n(80ms)\nTrigger.dev:\nConfigured\nSupabase:\nConnected\n(142ms)\nStorage:\nAccessible\nUpdated 12:53:23 AM\n\ud83d\udccb\n0\nTotal Jobs\n\u2699\ufe0f\n0\nIn Progress\n\u2705\n0\nApproved\n\ud83d\udda8\ufe0f\n0\nPrinted\n\u2795\n"
+  },
+  "invent": {
+    "url": "https://ai4u-little-engineer-web.vercel.app/invent",
+    "pass": true,
+    "content": "AI4U Little Engineer\nInvent\nMy Jobs\nGallery\nSign Out\nInvent a Design\n\nDescribe a mechanical problem in plain English \u2014 or upload a photo, sketch, or document. AI4U will design a 3D-printable solution,"
+  },
+  "invent_prefill": {
+    "url": "https://ai4u-little-engineer-web.vercel.app/invent?q=aluminum+L-bracket+50x30x20mm+3mm+thick",
+    "pass": true,
+    "auto_submitted": true,
+    "content": "AI4U Little Engineer\nInvent\nMy Jobs\nGallery\nSign Out\nInvent a Design\n\nDescribe a mechanical problem in plain English \u2014 or upload a photo, sketch, or document. AI4U will design a 3D-printable solution, generate the CAD files, and let you save, publish, or sell it.\n\n\u2699\ufe0f\nCurrent Print Plan\nMode\nParametr"
+  },
+  "interpret": {
+    "pass": true,
+    "session_id": "0d5b201c-799e-4248-b2bc-16c95edf802a",
+    "mode": "parametric_part",
+    "family": "bracket",
+    "dimensions": {
+      "length": 50,
+      "width": 30,
+      "height": 20,
+      "thickness": 3
+    }
+  },
+  "invent_api": {
+    "pass": false,
+    "job_id": "",
+    "response": {
+      "error": "Failed to bootstrap profile",
+      "step": "profile-bootstrap",
+      "detail": "there is no unique or exclusion constraint matching the ON CONFLICT specification"
+    }
+  },
+  "jobs_list": {
+    "url": "https://ai4u-little-engineer-web.vercel.app/jobs",
+    "pass": true,
+    "shows_jobs": true,
+    "content": "AI4U Little Engineer\nInvent\nMy Jobs\nGallery\nSign Out\nMy Jobs\n\n1 part generated\n\n+\nNew Part\n\u2699\ufe0f\nInvention: aluminum L-bracket 50x30x20mm 3mm thick\nL Bracket\n\u00b7\nApr 19, 2026\nDraft"
+  },
+  "artemis": {
+    "pass": true,
+    "job_id": "65c2d0b2-b9e8-4c01-9271-60237a138f7d",
+    "response_keys": [
+      "job_id",
+      "cad_run_id",
+      "trigger_run_id",
+      "invention_id",
+      "family",
+      "parameters",
+      "label",
+      "scale",
+      "material",
+      "quality",
+      "vpl_preview",
+      "status",
+      "unlimited",
+      "bypass_reason",
+      "daedalus_receipt"
+    ]
+  },
+  "homepage": {
+    "url": "https://ai4u-little-engineer-web.vercel.app/",
+    "pass": true,
+    "has_header": true,
+    "content": "AI4U Little Engineer\nInvent\nMy Jobs\nGallery\nSign Out\nAI\nAI4U Little Engineer\nSign In\nGet Started Free\nAI\nAI4U Little Engineer\nUniversal Creation Platform\nType it. Upload it.\nSay it. Print it.\n\nAI4U Li"
+  },
+  "dashboard_post": {
+    "url": "https://ai4u-little-engineer-web.vercel.app/dashboard",
+    "pass": true,
+    "content": "AI4U Little Engineer\nInvent\nMy Jobs\nGallery\nSign Out\nAI\nLittle Engineer\nleehanna8@gmail.com\nFree\nSettings\nSign out\nSYSTEM\nCAD Worker:\nOnline\n(15ms)\nTrigger.dev:\nConfigured\nSupabase:\nConnected\n(81ms)\nStorage:\nAccessible\nUpdated 12:53:58 AM\n\ud83d\udccb\n2\nTotal Jobs\n\u2699\ufe0f\n1\nIn Progress\n\u2705\n0\nApproved\n\ud83d\udda8\ufe0f\n0\nPrinted\n\u2795\nNew Part\n\ud83d\udda8\ufe0f\nPrinter Profile\n\ud83d\udcb3\nPlans\n\u267e\ufe0f\nUnlimited\nOwner Access \u00b7 Owner_email\nRecent Jobs\n+\nNew Part\n\u2b55\n"
+  }
+}

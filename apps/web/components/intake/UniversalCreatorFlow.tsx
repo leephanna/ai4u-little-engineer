@@ -12,9 +12,14 @@
  *   - LivePrintPlan
  *   - ClarificationChat
  *   - VisualPreviewPanel
+ *
+ * Locked spec path (gallery items):
+ *   When initialLockedSpec is provided, the component skips the interpret
+ *   step entirely and goes straight to "previewing" with the pre-built spec.
+ *   No clarification, no missing dims, no LLM call.
  */
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import UniversalInputComposer, { type ComposerPayload } from "./UniversalInputComposer";
 import LivePrintPlan from "./LivePrintPlan";
@@ -34,12 +39,25 @@ interface TruthGateRejection {
   confidence?: number;
 }
 
+interface LockedSpec {
+  family: string;
+  parameters: Record<string, number>;
+  reasoning: string;
+  confidence: number;
+}
+
 interface Props {
   printerName?: string;
   material?: string;
   examplePrompts?: string[];
   /** Pre-fill the input and auto-submit on mount (used by Gallery "Make This" via ?q= param) */
   initialPrompt?: string;
+  /**
+   * Locked complete spec payload (used by Gallery "Make This" via ?spec= param).
+   * When provided, skips the interpret step entirely and goes straight to previewing.
+   * No clarification, no missing dims, no LLM call.
+   */
+  initialLockedSpec?: LockedSpec;
 }
 
 const CONSUMER_EXAMPLES = [
@@ -55,6 +73,7 @@ export default function UniversalCreatorFlow({
   material = "PLA",
   examplePrompts = CONSUMER_EXAMPLES,
   initialPrompt,
+  initialLockedSpec,
 }: Props) {
   const router = useRouter();
   const [phase, setPhase] = useState<FlowPhase>("idle");
@@ -64,6 +83,31 @@ export default function UniversalCreatorFlow({
   const [fitEnvelope, setFitEnvelope] = useState<Record<string, number> | null>(null);
   const [showFallbackForm, setShowFallbackForm] = useState(false);
   const [truthGateRejection, setTruthGateRejection] = useState<TruthGateRejection | null>(null);
+
+  // ── Locked spec fast-path ─────────────────────────────────────────────────
+  // When a gallery item provides a locked complete spec, skip interpret entirely
+  // and go straight to previewing state.
+  useEffect(() => {
+    if (initialLockedSpec && phase === "idle") {
+      // Build a synthetic InterpretationResult from the locked spec
+      const syntheticResult: InterpretationResult = {
+        mode: "parametric_part",
+        family_candidate: initialLockedSpec.family,
+        extracted_dimensions: initialLockedSpec.parameters,
+        inferred_scale: null,
+        inferred_object_type: null,
+        missing_information: [],
+        assistant_message: initialLockedSpec.reasoning,
+        preview_strategy: "parametric_render",
+        confidence: initialLockedSpec.confidence,
+        file_interpretations: [],
+        session_id: `locked-${Date.now()}`,
+      };
+      setInterpretation(syntheticResult);
+      setPhase("previewing");
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const handleComposerSubmit = useCallback(async (payload: ComposerPayload) => {
     setPhase("interpreting");
@@ -85,7 +129,14 @@ export default function UniversalCreatorFlow({
       const result: InterpretationResult = await res.json();
       setInterpretation(result);
 
-      if (result.mode === "needs_clarification" || (result.missing_information?.length ?? 0) > 0) {
+      // If primitive normalizer resolved it (is_primitive=true) or no missing info,
+      // skip clarification and go straight to previewing
+      if (
+        (result as InterpretationResult & { is_primitive?: boolean }).is_primitive ||
+        result.mode !== "needs_clarification" && (result.missing_information?.length ?? 0) === 0
+      ) {
+        setPhase("previewing");
+      } else if (result.mode === "needs_clarification" || (result.missing_information?.length ?? 0) > 0) {
         setPhase("clarifying");
       } else {
         setPhase("previewing");
@@ -261,8 +312,19 @@ export default function UniversalCreatorFlow({
 
   return (
     <div className="space-y-4">
-      {/* Input composer — always visible in idle phase */}
-      {(phase === "idle" || phase === "interpreting") && (
+      {/* Locked spec banner — shown when a gallery item was selected */}
+      {initialLockedSpec && phase !== "idle" && (
+        <div className="rounded-lg bg-green-900/20 border border-green-700/50 px-4 py-3 text-sm text-green-300 flex items-center gap-2">
+          <span>✓</span>
+          <span>
+            <strong>Gallery preset loaded</strong> — {initialLockedSpec.family.replace(/_/g, " ")} with complete spec.
+            No clarification needed.
+          </span>
+        </div>
+      )}
+
+      {/* Input composer — always visible in idle phase (not shown for locked spec) */}
+      {(phase === "idle" || phase === "interpreting") && !initialLockedSpec && (
         <UniversalInputComposer
           onSubmit={handleComposerSubmit}
           isLoading={phase === "interpreting"}

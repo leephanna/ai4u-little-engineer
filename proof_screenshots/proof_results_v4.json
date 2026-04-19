@@ -1,0 +1,19 @@
+{
+  "verdict": "PARTIAL PASS",
+  "results": {
+    "dashboard_page": "PASS \u2014 screenshot captured",
+    "invent_page": "PASS \u2014 screenshot captured",
+    "gallery_prefill": "PASS \u2014 screenshot captured",
+    "interpret_api": "PASS \u2014 session_id=cb67cf73-8abf-4b6a-92df-db673452dd36, mode=parametric_part, family=spacer, dims={'outer_diameter': 32, 'inner_diameter': 8, 'length': 25}",
+    "invent_api": "PASS \u2014 job_id=67b29b57-dfd0-482e-aff1-9b101c7fb6df, invention_id=c2def537-34da-45ce-9477-b435f63299a2, family=spacer",
+    "jobs_page": "PASS \u2014 screenshot captured",
+    "job_detail_page": "PASS \u2014 /jobs/67b29b57-dfd0-482e-aff1-9b101c7fb6df screenshot captured",
+    "db_intake_session": "PASS \u2014 row={'session_id': 'cb67cf73-8abf-4b6a-92df-db673452dd36', 'clerk_user_id': 'user_3CIG5JxvJ4h1glyCRt3BoddBGmw', 'created_at': '2026-04-19T01:17:07.538273+00:00'}",
+    "db_job": "PASS \u2014 row={'id': '67b29b57-dfd0-482e-aff1-9b101c7fb6df', 'status': 'awaiting_approval', 'requested_family': 'spacer', 'clerk_user_id': 'user_3CIG5JxvJ4h1glyCRt3BoddBGmw', 'created_at': '2026-04-19T01:17:08.004706+00:00'}",
+    "db_profile": "FAIL \u2014 no profile for clerk_user_id=user_3CIG5JxvJ4h1glyCRt3BoddBGmw",
+    "db_jobs_count": "PASS \u2014 6 jobs found for user",
+    "artemis_demo": "PASS \u2014 job_id=c48437a6-c1cc-445d-8c55-0d961ce09615",
+    "deceptive_affordances": "PASS \u2014 Plans card removed (replaced with /pricing link)"
+  },
+  "timestamp": "2026-04-18T21:17:25Z"
+}

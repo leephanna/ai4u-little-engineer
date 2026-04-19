@@ -28,6 +28,7 @@ import {
   MVP_PART_FAMILIES,
   type MvpPartFamily,
 } from "@ai4u/shared";
+import { tryNormalizePrimitive } from "@/lib/primitive-normalizer";
 import { runTruthGate, formatTruthGateReceipt } from "@/lib/truth-gate";
 import { getAuthUser } from "@/lib/auth";
 
@@ -168,16 +169,32 @@ export async function POST(request: NextRequest) {
     const problemText = rawDescription.trim().slice(0, 1000); // cap at 1000 chars
 
     // ── Step 1: LLM → structured invention (or fast-path) ───────
-    // Fast-path: if the caller already resolved the family + dimensions (e.g. from
+    // Fast-path A: primitive shape normalizer — detects "cube", "cylinder", etc.
+    // before any LLM call. This ensures canonical primitives are never mis-routed.
+    const primitiveNorm = (!intake_family_candidate)
+      ? tryNormalizePrimitive(problemText)
+      : null;
+
+    // Fast-path B: if the caller already resolved the family + dimensions (e.g. from
     // the UniversalCreatorFlow interpretation engine), skip the LLM call entirely.
     const hasFastPath =
-      intake_family_candidate &&
+      (intake_family_candidate &&
       MVP_PART_FAMILIES.includes(intake_family_candidate as MvpPartFamily) &&
       intake_dimensions &&
-      Object.keys(intake_dimensions).length > 0;
+      Object.keys(intake_dimensions).length > 0) ||
+      !!primitiveNorm;
 
     let inventionResult: InventionResult;
-    if (hasFastPath) {
+    if (primitiveNorm) {
+      // Primitive normalizer fast-path
+      inventionResult = {
+        family: primitiveNorm.family,
+        parameters: primitiveNorm.parameters,
+        reasoning: primitiveNorm.reasoning,
+        confidence: primitiveNorm.confidence,
+        rejection_reason: null,
+      };
+    } else if (hasFastPath) {
       // Build InventionResult directly from the pre-resolved intake data
       inventionResult = {
         family: intake_family_candidate as string,

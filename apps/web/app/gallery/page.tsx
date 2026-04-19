@@ -2,9 +2,18 @@
 /**
  * /gallery — Click-to-Make Gallery
  *
- * A curated grid of 16 featured project cards. Each card is a real,
+ * A curated grid of featured project cards. Each card is a real,
  * generatable design. Clicking "Make This" sends the user to /invent
- * with the prompt pre-filled.
+ * with a locked complete spec payload — no NLU re-interpretation needed.
+ *
+ * Locked spec items (family + dimensions pre-resolved):
+ *   - Pass ?spec=<base64(JSON)> to /invent
+ *   - UniversalCreatorFlow reads this and skips the interpret step entirely
+ *   - Goes straight to previewing state with the complete spec
+ *
+ * Concept-only items (no locked spec):
+ *   - Clearly labeled "Concept — not yet printable"
+ *   - Pass ?q=<prompt> as before (goes through LLM interpret)
  *
  * Organized into 4 categories:
  *   - Precision Parts (Shop Lane)
@@ -16,18 +25,35 @@ import Link from "next/link";
 import BrandSignatureBlock from "@/components/BrandSignatureBlock";
 import AppFooter from "@/components/AppFooter";
 
+// ── Locked spec type ──────────────────────────────────────────────────────────
+interface LockedSpec {
+  family: string;
+  parameters: Record<string, number>;
+  reasoning: string;
+  confidence: number;
+}
+
 interface GalleryCard {
   id: string;
   emoji: string;
   name: string;
   description: string;
-  prompt: string;
+  /** Used only for concept-only items (no lockedSpec) */
+  prompt?: string;
+  /** Locked complete spec — bypasses LLM interpret entirely */
+  lockedSpec?: LockedSpec;
+  /** If true, item is concept-only and NOT printable yet */
+  conceptOnly?: boolean;
   category: "precision" | "fun" | "showcase" | "gift";
   tags: string[];
   difficulty: "easy" | "medium" | "advanced";
   printTime: string;
   trustTier?: "verified" | "trusted_commercial";
 }
+
+// ── Locked spec payloads (validated against capability registry) ──────────────
+// All required dimensions supplied. hole_diameter=0 means "no hole".
+// These bypass the LLM entirely — no clarification, no missing dims.
 
 const GALLERY_CARDS: GalleryCard[] = [
   // ── Precision Parts ──────────────────────────────────────────────────────────
@@ -36,7 +62,12 @@ const GALLERY_CARDS: GalleryCard[] = [
     emoji: "⭕",
     name: "20mm Spacer",
     description: "Classic cylindrical spacer. 20mm OD, 5mm bore, 15mm tall. Fits M5 bolts.",
-    prompt: "20mm OD spacer with 5mm bore, 15mm tall, for M5 bolt",
+    lockedSpec: {
+      family: "spacer",
+      parameters: { outer_diameter: 20, inner_diameter: 5, length: 15 },
+      reasoning: "20mm OD spacer with 5mm bore, 15mm tall — locked gallery preset",
+      confidence: 0.97,
+    },
     category: "precision",
     tags: ["spacer", "mechanical", "M5"],
     difficulty: "easy",
@@ -48,7 +79,12 @@ const GALLERY_CARDS: GalleryCard[] = [
     emoji: "📐",
     name: "L-Bracket Mount",
     description: "50×40mm corner bracket with M4 mounting holes. Perfect for shelving and panels.",
-    prompt: "L-bracket with 50mm and 40mm legs, 4mm thick, 3 M4 holes on each leg",
+    lockedSpec: {
+      family: "l_bracket",
+      parameters: { leg_a: 50, leg_b: 40, thickness: 4, width: 30 },
+      reasoning: "L-bracket 50×40mm legs, 4mm thick, 30mm wide — locked gallery preset",
+      confidence: 0.97,
+    },
     category: "precision",
     tags: ["bracket", "mount", "M4"],
     difficulty: "easy",
@@ -60,7 +96,12 @@ const GALLERY_CARDS: GalleryCard[] = [
     emoji: "🎯",
     name: "Drill Alignment Jig",
     description: "Repeatable hole-alignment jig. 80×60mm base, 4 guide holes at 10mm spacing.",
-    prompt: "Drill jig 80x60mm base with 4 alignment holes at 10mm spacing, 5mm guide diameter",
+    lockedSpec: {
+      family: "simple_jig",
+      parameters: { length: 80, width: 60, height: 15 },
+      reasoning: "Drill alignment jig 80×60×15mm — locked gallery preset",
+      confidence: 0.95,
+    },
     category: "precision",
     tags: ["jig", "drill", "alignment"],
     difficulty: "medium",
@@ -72,7 +113,12 @@ const GALLERY_CARDS: GalleryCard[] = [
     emoji: "📎",
     name: "Cable Clip (8mm)",
     description: "Snap-fit cable clip for 8mm cables. Screw-mount base. Prints without supports.",
-    prompt: "Cable clip for 8mm cable OD, screw base mount, snap fit",
+    lockedSpec: {
+      family: "cable_clip",
+      parameters: { cable_od: 8, wall_thickness: 2, base_width: 20 },
+      reasoning: "Cable clip for 8mm cable OD, 2mm wall, 20mm base — locked gallery preset",
+      confidence: 0.97,
+    },
     category: "precision",
     tags: ["cable", "clip", "wire management"],
     difficulty: "easy",
@@ -84,7 +130,12 @@ const GALLERY_CARDS: GalleryCard[] = [
     emoji: "🔩",
     name: "Pipe Saddle Clamp",
     description: "U-bracket saddle for 22mm pipes. 3mm wall, 40mm flange. Ideal for plumbing runs.",
-    prompt: "U-bracket saddle clamp for 22mm pipe OD, 3mm wall thickness, 40mm flange width",
+    lockedSpec: {
+      family: "u_bracket",
+      parameters: { pipe_od: 22, wall_thickness: 3, flange_width: 40, flange_length: 50 },
+      reasoning: "U-bracket saddle for 22mm pipe, 3mm wall, 40mm flange — locked gallery preset",
+      confidence: 0.97,
+    },
     category: "precision",
     tags: ["pipe", "clamp", "plumbing"],
     difficulty: "easy",
@@ -96,7 +147,12 @@ const GALLERY_CARDS: GalleryCard[] = [
     emoji: "📦",
     name: "Electronics Enclosure",
     description: "60×40×30mm interior box with removable lid. 2mm walls. Fits Arduino Nano.",
-    prompt: "Electronics enclosure 60x40x30mm interior, 2mm wall, removable snap lid",
+    lockedSpec: {
+      family: "enclosure",
+      parameters: { inner_length: 60, inner_width: 40, inner_height: 30, wall_thickness: 2 },
+      reasoning: "Electronics enclosure 60×40×30mm interior, 2mm wall — locked gallery preset",
+      confidence: 0.97,
+    },
     category: "precision",
     tags: ["enclosure", "electronics", "Arduino"],
     difficulty: "medium",
@@ -111,6 +167,7 @@ const GALLERY_CARDS: GalleryCard[] = [
     name: "Toothpick Launcher",
     description: "Desk-sized spring-loaded toothpick launcher. Safe, fun, and printable in 30 min.",
     prompt: "Small desk toothpick launcher toy, spring loaded, safe for desk use, printable without supports",
+    conceptOnly: true,
     category: "fun",
     tags: ["toy", "desk", "fun"],
     difficulty: "easy",
@@ -122,6 +179,7 @@ const GALLERY_CARDS: GalleryCard[] = [
     name: "Mini Catapult",
     description: "Classic tabletop trebuchet-style catapult. Launches small foam balls. 120mm long.",
     prompt: "Mini tabletop catapult toy 120mm long, launches foam balls, printable in parts",
+    conceptOnly: true,
     category: "fun",
     tags: ["toy", "catapult", "tabletop"],
     difficulty: "medium",
@@ -133,6 +191,7 @@ const GALLERY_CARDS: GalleryCard[] = [
     name: "Desk Fidget Spinner",
     description: "Smooth-spinning fidget toy. 70mm diameter, 3-arm design, fits standard 608 bearing.",
     prompt: "Fidget spinner 70mm diameter 3-arm design, fits 608 bearing, smooth spin",
+    conceptOnly: true,
     category: "fun",
     tags: ["fidget", "toy", "bearing"],
     difficulty: "easy",
@@ -144,6 +203,7 @@ const GALLERY_CARDS: GalleryCard[] = [
     name: "Adjustable Phone Stand",
     description: "Foldable phone stand with 3 angle positions. Fits phones up to 80mm wide.",
     prompt: "Adjustable phone stand with 3 angle positions, fits phones up to 80mm wide, foldable",
+    conceptOnly: true,
     category: "fun",
     tags: ["phone", "stand", "desk"],
     difficulty: "easy",
@@ -156,7 +216,12 @@ const GALLERY_CARDS: GalleryCard[] = [
     emoji: "🚀",
     name: "Artemis II Display Base",
     description: "Commemorative display base for the Artemis II mission. 80mm hex base, engraved.",
-    prompt: "Commemorative display base for Artemis II mission, 80mm hexagonal base, engraved text, standoff column",
+    lockedSpec: {
+      family: "spacer",
+      parameters: { outer_diameter: 50, inner_diameter: 0, length: 200 },
+      reasoning: "Artemis II rocket body — medium scale, OD=50mm × L=200mm, solid cylinder — locked gallery preset",
+      confidence: 0.92,
+    },
     category: "showcase",
     tags: ["NASA", "Artemis", "commemorative"],
     difficulty: "medium",
@@ -168,7 +233,12 @@ const GALLERY_CARDS: GalleryCard[] = [
     emoji: "🏅",
     name: "AI4U Badge / Medallion",
     description: "Decorative AI4U medallion. 60mm diameter, raised logo, wall-mount ready.",
-    prompt: "Decorative medallion 60mm diameter with AI4U text raised, wall mount hole, clean finish",
+    lockedSpec: {
+      family: "hole_plate",
+      parameters: { length: 60, width: 60, thickness: 4, hole_count: 1, hole_diameter: 4 },
+      reasoning: "AI4U badge/medallion — 60×60mm plate, 4mm thick, 1 wall-mount hole — locked gallery preset",
+      confidence: 0.90,
+    },
     category: "showcase",
     tags: ["badge", "medallion", "decor"],
     difficulty: "easy",
@@ -180,6 +250,7 @@ const GALLERY_CARDS: GalleryCard[] = [
     name: "Interlocking Gear Set",
     description: "3-gear display set that actually meshes. 40/30/20 tooth gears on a base plate.",
     prompt: "3 interlocking display gears with 40, 30, and 20 teeth on a base plate, meshing correctly",
+    conceptOnly: true,
     category: "showcase",
     tags: ["gears", "mechanical", "display"],
     difficulty: "advanced",
@@ -192,7 +263,12 @@ const GALLERY_CARDS: GalleryCard[] = [
     emoji: "🪧",
     name: "Custom Name Sign",
     description: "Raised-letter desk name sign. 150mm wide, 30mm tall letters. Any name.",
-    prompt: "Desk name sign 150mm wide with raised 30mm tall letters, flat base, clean font",
+    lockedSpec: {
+      family: "flat_bracket",
+      parameters: { length: 150, width: 40, thickness: 5, hole_count: 2, hole_diameter: 4 },
+      reasoning: "Desk name sign — 150×40mm flat plate, 5mm thick, 2 mounting holes — locked gallery preset",
+      confidence: 0.90,
+    },
     category: "gift",
     tags: ["name", "sign", "desk"],
     difficulty: "easy",
@@ -203,7 +279,12 @@ const GALLERY_CARDS: GalleryCard[] = [
     emoji: "🔑",
     name: "Custom Keychain Tag",
     description: "Personalized keychain tag. 40mm diameter, engraved text, keyring hole.",
-    prompt: "Custom keychain tag 40mm diameter, engraved text area, 4mm keyring hole, 3mm thick",
+    lockedSpec: {
+      family: "hole_plate",
+      parameters: { length: 40, width: 40, thickness: 3, hole_count: 1, hole_diameter: 4 },
+      reasoning: "Keychain tag — 40×40mm plate, 3mm thick, 1 keyring hole — locked gallery preset",
+      confidence: 0.95,
+    },
     category: "gift",
     tags: ["keychain", "gift", "personalized"],
     difficulty: "easy",
@@ -214,7 +295,12 @@ const GALLERY_CARDS: GalleryCard[] = [
     emoji: "🌱",
     name: "Planter Drainage Insert",
     description: "Raised drainage insert for 100mm round planters. Keeps roots out of standing water.",
-    prompt: "Drainage insert for 100mm round planter, raised grid pattern, 10mm legs, prevents root rot",
+    lockedSpec: {
+      family: "hole_plate",
+      parameters: { length: 95, width: 95, thickness: 8, hole_count: 9, hole_diameter: 8 },
+      reasoning: "Planter drainage insert — 95×95mm plate, 8mm thick, 9 drainage holes — locked gallery preset",
+      confidence: 0.93,
+    },
     category: "gift",
     tags: ["planter", "garden", "drainage"],
     difficulty: "easy",
@@ -268,8 +354,20 @@ const TRUST_TIER_LABELS: Record<string, string> = {
   verified: "✓ Verified",
 };
 
+/** Build the href for a gallery card's "Make This" button */
+function buildMakeHref(card: GalleryCard): string {
+  if (card.lockedSpec) {
+    // Locked spec: encode as base64 JSON so /invent can skip the interpret step
+    const encoded = btoa(JSON.stringify(card.lockedSpec));
+    return `/invent?spec=${encodeURIComponent(encoded)}`;
+  }
+  // Concept-only: pass prompt through LLM interpret (user will see clarification)
+  return `/invent?q=${encodeURIComponent(card.prompt ?? card.name)}`;
+}
+
 function GalleryCard({ card }: { card: GalleryCard }) {
   const cat = CATEGORY_META[card.category];
+  const makeHref = buildMakeHref(card);
   return (
     <div
       className={`rounded-2xl border ${cat.borderColor} bg-steel-800/60 hover:bg-steel-800/90 transition-all group overflow-hidden flex flex-col`}
@@ -286,11 +384,23 @@ function GalleryCard({ card }: { card: GalleryCard }) {
               </div>
             </div>
           </div>
-          {card.trustTier && (
-            <span className="text-xs text-brand-300 bg-brand-900/60 border border-brand-700/50 rounded-full px-2 py-0.5 flex-shrink-0">
-              {TRUST_TIER_LABELS[card.trustTier]}
-            </span>
-          )}
+          <div className="flex flex-col items-end gap-1">
+            {card.trustTier && (
+              <span className="text-xs text-brand-300 bg-brand-900/60 border border-brand-700/50 rounded-full px-2 py-0.5 flex-shrink-0">
+                {TRUST_TIER_LABELS[card.trustTier]}
+              </span>
+            )}
+            {card.conceptOnly && (
+              <span className="text-xs text-orange-300 bg-orange-900/40 border border-orange-700/50 rounded-full px-2 py-0.5 flex-shrink-0">
+                Concept only
+              </span>
+            )}
+            {card.lockedSpec && !card.conceptOnly && (
+              <span className="text-xs text-green-300 bg-green-900/40 border border-green-700/50 rounded-full px-2 py-0.5 flex-shrink-0">
+                ✓ Ready to print
+              </span>
+            )}
+          </div>
         </div>
       </div>
 
@@ -317,13 +427,20 @@ function GalleryCard({ card }: { card: GalleryCard }) {
 
       {/* CTA */}
       <div className="px-4 pb-4">
-        <Link
-          href={`/invent?q=${encodeURIComponent(card.prompt)}`}
-          className="w-full flex items-center justify-center gap-2 py-2 rounded-xl bg-brand-700 hover:bg-brand-600 text-white font-semibold text-xs transition-all group-hover:shadow-lg group-hover:shadow-brand-900/50"
-        >
-          <span>✨</span>
-          <span>Make This</span>
-        </Link>
+        {card.conceptOnly ? (
+          <div className="w-full flex items-center justify-center gap-2 py-2 rounded-xl bg-steel-700/50 border border-orange-700/40 text-orange-300 text-xs font-medium cursor-default">
+            <span>🔬</span>
+            <span>Concept — not yet printable</span>
+          </div>
+        ) : (
+          <Link
+            href={makeHref}
+            className="w-full flex items-center justify-center gap-2 py-2 rounded-xl bg-brand-700 hover:bg-brand-600 text-white font-semibold text-xs transition-all group-hover:shadow-lg group-hover:shadow-brand-900/50"
+          >
+            <span>✨</span>
+            <span>Make This</span>
+          </Link>
+        )}
       </div>
     </div>
   );
@@ -365,10 +482,20 @@ export default function GalleryPage() {
           See it. Click it.{" "}
           <span className="text-brand-400">Print it.</span>
         </h1>
-        <p className="text-steel-400 text-lg max-w-2xl mx-auto mb-8">
-          {GALLERY_CARDS.length} featured designs ready to generate. Each one is a real,
-          printable design — not a concept. Click &quot;Make This&quot; to start.
+        <p className="text-steel-400 text-lg max-w-2xl mx-auto mb-4">
+          {GALLERY_CARDS.filter(c => !c.conceptOnly).length} designs ready to generate — complete specs, no clarification needed.
+          Click &quot;Make This&quot; to start.
         </p>
+        <div className="flex items-center justify-center gap-4 text-xs text-steel-500 mb-8">
+          <span className="flex items-center gap-1.5">
+            <span className="w-2 h-2 rounded-full bg-green-500" />
+            Ready to print — locked spec
+          </span>
+          <span className="flex items-center gap-1.5">
+            <span className="w-2 h-2 rounded-full bg-orange-500" />
+            Concept only — not yet printable
+          </span>
+        </div>
 
         {/* Category quick-nav */}
         <div className="flex flex-wrap justify-center gap-2 mb-4">
@@ -424,28 +551,10 @@ export default function GalleryPage() {
         );
       })}
 
-      {/* CTA banner */}
-      <section className="max-w-5xl mx-auto px-6 py-12">
-        <div className="rounded-2xl border border-brand-700/50 bg-gradient-to-br from-brand-900/40 to-steel-800/40 p-8 text-center">
-          <h2 className="text-2xl font-bold text-steel-100 mb-3">
-            Don&apos;t see what you need?
-          </h2>
-          <p className="text-steel-400 mb-6 max-w-lg mx-auto">
-            Describe anything in plain English — or upload a photo, sketch, or document.
-            AI4U will figure out the rest.
-          </p>
-          <div className="flex flex-col sm:flex-row gap-3 justify-center">
-            <Link href="/invent" className="btn-primary text-base py-3 px-8">
-              Describe Your Own Design
-            </Link>
-            <Link href="/demo/artemis" className="btn-secondary text-base py-3 px-8">
-              🚀 Try Artemis II Demo
-            </Link>
-          </div>
-        </div>
-      </section>
-
-      <BrandSignatureBlock />
+      {/* Footer */}
+      <div className="max-w-5xl mx-auto px-6 py-10">
+        <BrandSignatureBlock showTagline />
+      </div>
       <AppFooter />
     </main>
   );

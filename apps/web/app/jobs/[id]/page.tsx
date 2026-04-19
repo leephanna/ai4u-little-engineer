@@ -1,22 +1,35 @@
 /**
- * Job Detail Page — Reality Lock Edition
+ * Job Detail Page — Truth-State Edition
  *
- * Only surfaces that are fully backed by working API routes are shown:
- *   ✅ Preview (STL inline viewer)
- *   ✅ Part Spec Summary
- *   ✅ Latest CAD Run status
- *   ✅ Artifacts (download links)
- *   ✅ Virtual Print Lab
- *   ✅ Print Info + Save to Library
- *   ✅ Share
- *   ✅ Job metadata
+ * Displays exactly 5 distinct truth states per spec section 4:
  *
- * Removed (no backing API routes — to be restored in follow-up sprints):
- *   ❌ ApprovalPanel       → /api/jobs/[id]/approve does not exist
- *   ❌ RevisionPanel       → /api/jobs/[id]/revise does not exist
- *   ❌ FeedbackUploadWidget → /api/feedback/upload does not exist
- *   ❌ InventionProtectionPanel → /api/jobs/[id]/patent-summary does not exist
- *   ❌ TagEditor           → persists but does not display correctly
+ *   STATE 1: Spec ready, no CAD run yet
+ *     → "Ready to generate — no CAD run started yet"
+ *     → Shows Generate button
+ *
+ *   STATE 2: CAD run failed
+ *     → "CAD run failed" with error text
+ *     → Shows error details, no artifact claims
+ *     → Does NOT say "ready to review" or imply printability
+ *
+ *   STATE 3: CAD run succeeded, artifacts exist, no 3D preview
+ *     → "CAD run succeeded — STL/STEP files available"
+ *     → Shows download controls
+ *     → Plainly states: "3D preview not available for this job"
+ *
+ *   STATE 4: 3D preview available
+ *     → Shows inline 3D viewer
+ *     → Shows download controls
+ *
+ *   STATE 5: Generating / in-progress
+ *     → Live polling banner
+ *     → No artifact claims until run completes
+ *
+ * Removed deceptive affordances:
+ *   - No "Ready to review" language when run failed
+ *   - No printability claims when validation failed
+ *   - No preview section when STL doesn't exist
+ *   - No artifact section when no artifacts exist
  */
 import { createServiceClient } from "@/lib/supabase/service";
 import { redirect, notFound } from "next/navigation";
@@ -45,6 +58,45 @@ export const dynamic = "force-dynamic";
 
 interface PageProps {
   params: Promise<{ id: string }>;
+}
+
+// ── Truth state derivation ────────────────────────────────────────────────────
+type TruthState =
+  | "spec_ready_no_run"      // STATE 1: spec exists, no CAD run yet
+  | "run_in_progress"        // STATE 5: run queued or running
+  | "run_failed"             // STATE 2: latest run failed
+  | "run_success_no_preview" // STATE 3: run succeeded, artifacts exist, no preview
+  | "preview_available";     // STATE 4: run succeeded, STL exists, preview ready
+
+function deriveTruthState(
+  latestRun: CadRun | null,
+  artifacts: Artifact[],
+  latestSpec: PartSpec | null
+): TruthState {
+  // No spec at all — shouldn't happen but handle gracefully
+  if (!latestSpec) return "spec_ready_no_run";
+
+  // No run yet
+  if (!latestRun) return "spec_ready_no_run";
+
+  // Run in progress
+  if (latestRun.status === "queued" || latestRun.status === "running") {
+    return "run_in_progress";
+  }
+
+  // Run failed
+  if (latestRun.status === "failed") return "run_failed";
+
+  // Run succeeded
+  if (latestRun.status === "success") {
+    const hasStl = artifacts.some((a) => a.kind === "stl");
+    if (hasStl) return "preview_available";
+    // Success but no STL artifact (e.g. concept-only run)
+    return "run_success_no_preview";
+  }
+
+  // Unknown status — treat as in-progress
+  return "run_in_progress";
 }
 
 export default async function JobDetailPage({ params }: PageProps) {
@@ -94,6 +146,9 @@ export default async function JobDetailPage({ params }: PageProps) {
 
   const isNonTerminal = !["approved", "rejected", "printed", "completed", "failed", "awaiting_approval"].includes(job.status);
 
+  // ── Derive truth state ────────────────────────────────────────────────────
+  const truthState = deriveTruthState(latestRun, artifacts, latestSpec);
+
   return (
     <div className="min-h-screen bg-steel-900">
       {/* Header */}
@@ -114,8 +169,8 @@ export default async function JobDetailPage({ params }: PageProps) {
           </span>
         </div>
 
-        {/* Generate button — available when spec exists but not yet generating */}
-        {latestSpec && ["draft", "clarifying", "failed"].includes(job.status) && (
+        {/* Generate button — only shown in STATE 1 (spec ready, no run) */}
+        {truthState === "spec_ready_no_run" && latestSpec && (
           <Link
             href={`/jobs/${id}/generate`}
             className="btn-primary text-sm py-1.5 px-3"
@@ -124,7 +179,7 @@ export default async function JobDetailPage({ params }: PageProps) {
           </Link>
         )}
 
-        {/* New Design button — available from any terminal state */}
+        {/* New Design button — available from any state */}
         <Link
           href="/invent"
           className="btn-secondary text-sm py-1.5 px-3"
@@ -137,19 +192,90 @@ export default async function JobDetailPage({ params }: PageProps) {
         {/* Live polling — refreshes page data until job reaches terminal state */}
         {isNonTerminal && <JobLiveHydration jobId={id} currentStatus={job.status} />}
 
-        {/* Progress banner — shown while job is actively processing */}
-        {isNonTerminal && (
-          <JobProgressBanner
-            status={job.status}
-            cadRunStatus={latestRun?.status ?? null}
-          />
+        {/* ── STATE 5: Run in progress ──────────────────────────────────────── */}
+        {truthState === "run_in_progress" && (
+          <section>
+            <JobProgressBanner
+              status={job.status}
+              cadRunStatus={latestRun?.status ?? null}
+            />
+            <div className="mt-3 rounded-lg bg-steel-800/50 border border-steel-700 px-4 py-3 text-sm text-steel-400">
+              CAD generation is in progress. This page will refresh automatically.
+              No artifacts are available yet.
+            </div>
+          </section>
         )}
 
-        {/* 3D Preview — shown as soon as a successful run exists */}
-        {latestRun?.status === "success" && (
+        {/* ── STATE 1: Spec ready, no run ───────────────────────────────────── */}
+        {truthState === "spec_ready_no_run" && (
+          <section>
+            <div className="rounded-lg bg-brand-900/20 border border-brand-700/50 px-4 py-4">
+              <div className="flex items-start gap-3">
+                <span className="text-2xl">📋</span>
+                <div>
+                  <div className="font-semibold text-brand-300 text-sm mb-1">
+                    Spec ready — no CAD run started yet
+                  </div>
+                  <p className="text-steel-400 text-xs">
+                    Your design spec is complete. Click &quot;Generate&quot; to start the CAD engine
+                    and produce STL and STEP files.
+                  </p>
+                </div>
+              </div>
+            </div>
+          </section>
+        )}
+
+        {/* ── STATE 2: Run failed ───────────────────────────────────────────── */}
+        {truthState === "run_failed" && (
+          <section>
+            <div className="rounded-lg bg-red-900/20 border border-red-700/50 px-4 py-4">
+              <div className="flex items-start gap-3">
+                <span className="text-2xl">❌</span>
+                <div className="flex-1">
+                  <div className="font-semibold text-red-300 text-sm mb-1">
+                    CAD run failed — no artifacts produced
+                  </div>
+                  <p className="text-steel-400 text-xs mb-2">
+                    The CAD engine encountered an error. No STL or STEP files were generated.
+                    This design is not ready to print.
+                  </p>
+                  {latestRun?.error_text && (
+                    <div className="bg-red-950/50 border border-red-800 rounded px-3 py-2 text-red-300 text-xs font-mono break-all">
+                      {latestRun.error_text}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          </section>
+        )}
+
+        {/* ── STATE 3: Run succeeded, no preview ───────────────────────────── */}
+        {truthState === "run_success_no_preview" && (
+          <section>
+            <div className="rounded-lg bg-yellow-900/20 border border-yellow-700/50 px-4 py-4">
+              <div className="flex items-start gap-3">
+                <span className="text-2xl">📁</span>
+                <div>
+                  <div className="font-semibold text-yellow-300 text-sm mb-1">
+                    CAD run succeeded — files available, no 3D preview
+                  </div>
+                  <p className="text-steel-400 text-xs">
+                    STL and STEP files were generated successfully. 3D preview is not available
+                    for this job — download the files below to view in your slicer.
+                  </p>
+                </div>
+              </div>
+            </div>
+          </section>
+        )}
+
+        {/* ── STATE 4: Preview available ────────────────────────────────────── */}
+        {truthState === "preview_available" && (
           <section>
             <h2 className="text-sm font-medium text-steel-400 uppercase tracking-wide mb-3">
-              Preview
+              3D Preview
             </h2>
             <JobPreviewPanel
               artifacts={artifacts}
@@ -169,8 +295,8 @@ export default async function JobDetailPage({ params }: PageProps) {
           </section>
         )}
 
-        {/* Latest CAD Run */}
-        {latestRun && (
+        {/* Latest CAD Run — shown for all states except spec_ready_no_run */}
+        {latestRun && truthState !== "spec_ready_no_run" && (
           <section>
             <h2 className="text-sm font-medium text-steel-400 uppercase tracking-wide mb-3">
               Latest CAD Run
@@ -196,7 +322,8 @@ export default async function JobDetailPage({ params }: PageProps) {
                 <ValidationBadge report={latestRun.validation_report_json as unknown as ValidationReport} />
               )}
 
-              {latestRun.error_text && (
+              {/* Error text — only shown for failed runs */}
+              {latestRun.status === "failed" && latestRun.error_text && (
                 <div className="bg-red-900/30 border border-red-800 rounded-lg px-3 py-2 text-red-300 text-xs font-mono">
                   {latestRun.error_text}
                 </div>
@@ -205,8 +332,8 @@ export default async function JobDetailPage({ params }: PageProps) {
           </section>
         )}
 
-        {/* Artifacts */}
-        {artifacts.length > 0 && (
+        {/* Artifacts — shown when run succeeded and artifacts exist */}
+        {(truthState === "preview_available" || truthState === "run_success_no_preview") && artifacts.length > 0 && (
           <section>
             <h2 className="text-sm font-medium text-steel-400 uppercase tracking-wide mb-3">
               Artifacts
@@ -215,21 +342,31 @@ export default async function JobDetailPage({ params }: PageProps) {
           </section>
         )}
 
-        {/* Virtual Print Lab */}
-        {latestRun?.status === "success" && (
+        {/* No artifacts notice — shown when run succeeded but no artifacts */}
+        {latestRun?.status === "success" && artifacts.length === 0 && (
+          <section>
+            <div className="rounded-lg bg-steel-800/50 border border-steel-700 px-4 py-3 text-sm text-steel-400">
+              CAD run completed but no artifact files were found in storage.
+              The pipeline may still be uploading — refresh in a moment.
+            </div>
+          </section>
+        )}
+
+        {/* Virtual Print Lab — only when preview available */}
+        {truthState === "preview_available" && (
           <section>
             <h2 className="text-sm font-medium text-steel-400 uppercase tracking-wide mb-3">
               Virtual Print Lab
             </h2>
             <VirtualPrintLabPanel
               jobId={id}
-              cadRunId={latestRun.id}
+              cadRunId={latestRun!.id}
             />
           </section>
         )}
 
-        {/* Print Info + Save to Library */}
-        {latestRun?.status === "success" && (
+        {/* Print Info — only when run succeeded (not when failed) */}
+        {(truthState === "preview_available" || truthState === "run_success_no_preview") && (
           <section>
             <h2 className="text-sm font-medium text-steel-400 uppercase tracking-wide mb-3">
               Print Info
@@ -282,6 +419,8 @@ export default async function JobDetailPage({ params }: PageProps) {
               </dd>
               <dt className="text-steel-500">Spec version</dt>
               <dd className="text-steel-300">{job.latest_spec_version}</dd>
+              <dt className="text-steel-500">Truth state</dt>
+              <dd className="text-steel-300 font-mono text-xs">{truthState}</dd>
               {job.confidence_score && (
                 <>
                   <dt className="text-steel-500">Confidence</dt>

@@ -2,8 +2,14 @@
  * /invent
  *
  * Universal Creation Engine UI.
- * Reads optional ?q= search param and passes it as initialPrompt to
- * UniversalCreatorFlow so Gallery "Make This" buttons auto-fill + auto-submit.
+ *
+ * Query params:
+ *   ?q=<prompt>    — pre-fill the input and auto-submit (old gallery path)
+ *   ?spec=<base64> — locked complete spec payload (new gallery path)
+ *                    Skips interpret entirely, goes straight to previewing state.
+ *
+ * The ?spec= path is used by Gallery "Make This" buttons on locked-spec items.
+ * It encodes a JSON object: { family, parameters, reasoning, confidence }
  */
 
 "use client";
@@ -12,9 +18,30 @@ import { Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import UniversalCreatorFlow from "@/components/intake/UniversalCreatorFlow";
 
+interface LockedSpec {
+  family: string;
+  parameters: Record<string, number>;
+  reasoning: string;
+  confidence: number;
+}
+
+function parseLockedSpec(encoded: string | null): LockedSpec | null {
+  if (!encoded) return null;
+  try {
+    const decoded = atob(decodeURIComponent(encoded));
+    const parsed = JSON.parse(decoded) as LockedSpec;
+    if (!parsed.family || !parsed.parameters) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
 function InventContent() {
   const searchParams = useSearchParams();
   const q = searchParams.get("q") ?? searchParams.get("prompt") ?? undefined;
+  const specEncoded = searchParams.get("spec");
+  const lockedSpec = parseLockedSpec(specEncoded);
 
   return (
     <div className="min-h-screen bg-steel-950">
@@ -27,7 +54,10 @@ function InventContent() {
             let you save, publish, or sell it.
           </p>
         </div>
-        <UniversalCreatorFlow initialPrompt={q} />
+        <UniversalCreatorFlow
+          initialPrompt={lockedSpec ? undefined : q}
+          initialLockedSpec={lockedSpec ?? undefined}
+        />
       </div>
     </div>
   );

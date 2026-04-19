@@ -13,6 +13,13 @@
  * 1. PRIMARY: Supabase intake_sessions table (persistent across serverless instances)
  * 2. FALLBACK: In-memory Map via lib/intake-session-store (local dev / DB unavailable)
  *
+ * Primitive shape normalizer (pre-LLM):
+ * Before calling the LLM, we check for canonical geometric primitives:
+ *   - "cube" / "Xmm cube" → family=standoff_block, equal dims, no clarification
+ *   - "cylinder" → family=spacer, solid cylinder
+ *   - "ring"/"spacer"/"bushing" → family=spacer, with bore
+ * This ensures "make a cube with 5mm sides" never routes to spacer/jig.
+ *
  * Image processing errors are caught and degraded gracefully — the route
  * continues with text-only interpretation rather than returning a 500.
  */
@@ -22,6 +29,7 @@ import OpenAI from "openai";
 import { getAuthUser } from "@/lib/auth";
 import { randomUUID } from "crypto";
 import { setIntakeSession } from "@/lib/intake-session-store";
+import { tryNormalizePrimitive } from "@/lib/primitive-normalizer";
 
 // Supported interpretation modes
 const INTERPRETATION_MODES = [
@@ -48,6 +56,7 @@ export interface InterpretationResult {
   confidence: number;
   file_interpretations: FileInterpretation[];
   session_id: string;
+  is_primitive?: boolean;
 }
 
 interface FileInterpretation {
@@ -78,7 +87,7 @@ You accept text descriptions, uploaded images, and documents.
 You must return a JSON object with these fields:
 {
   "mode": one of [${INTERPRETATION_MODES.map((m) => `"${m}"`).join(", ")}],
-  "family_candidate": string or null (one of: spacer, bracket, enclosure, cable_clip, fan_mount, pcb_jig, wall_mount, hinge, knob, custom_shape),
+  "family_candidate": string or null (one of: spacer, l_bracket, u_bracket, hole_plate, cable_clip, enclosure, flat_bracket, standoff_block, adapter_bushing, simple_jig),
   "extracted_dimensions": object with numeric values in mm (e.g. {"length": 50, "width": 30}),
   "inferred_scale": string or null (e.g. "palm-sized", "desk ornament", "full display model"),
   "inferred_object_type": string or null (e.g. "rocket model", "wall sign", "cable holder"),
@@ -181,6 +190,61 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "No input provided" }, { status: 400 });
     }
 
+    const combinedText = [
+      text,
+      voice_transcript ? `[Voice transcript: ${voice_transcript}]` : null,
+    ]
+      .filter(Boolean)
+      .join("\n\n");
+
+    // ── PRIMITIVE SHAPE NORMALIZER (pre-LLM fast path) ────────────────────────
+    // For text-only requests, check if the prompt is a canonical geometric primitive.
+    // If so, bypass the LLM entirely and return a fully-resolved spec.
+    // This prevents "cube" from routing to spacer/jig families.
+    const primitiveResult = (jsonFiles?.length === 0 && !multipartImageDataUrl)
+      ? tryNormalizePrimitive(combinedText)
+      : null;
+
+    if (primitiveResult) {
+      const activeSessionId = session_id ?? randomUUID();
+      const sessionState: Record<string, unknown> = {
+        clerk_user_id: user.id,
+        mode: "parametric_part",
+        family_candidate: primitiveResult.family,
+        extracted_dimensions: primitiveResult.parameters,
+        inferred_scale: null,
+        inferred_object_type: null,
+        missing_information: [],
+        assistant_message: primitiveResult.reasoning,
+        preview_strategy: "parametric_render",
+        confidence: primitiveResult.confidence,
+        is_primitive: true,
+        conversation_history: [
+          ...conversation_history,
+          { role: "user", content: combinedText },
+          { role: "assistant", content: primitiveResult.reasoning },
+        ],
+        status: "active",
+      };
+      await setIntakeSession(activeSessionId, sessionState, user.id);
+
+      const result: InterpretationResult = {
+        mode: "parametric_part",
+        family_candidate: primitiveResult.family,
+        extracted_dimensions: primitiveResult.parameters,
+        inferred_scale: null,
+        inferred_object_type: null,
+        missing_information: [],
+        assistant_message: primitiveResult.reasoning,
+        preview_strategy: "parametric_render",
+        confidence: primitiveResult.confidence,
+        file_interpretations: [],
+        session_id: activeSessionId,
+        is_primitive: true,
+      };
+      return NextResponse.json(result);
+    }
+
     // ── Build LLM messages ────────────────────────────────────────────────────
     const messages: OpenAI.Chat.ChatCompletionMessageParam[] = [
       { role: "system", content: SYSTEM_PROMPT },
@@ -193,13 +257,6 @@ export async function POST(req: NextRequest) {
 
     // Build the user message content (multimodal)
     const userContent: OpenAI.Chat.ChatCompletionContentPart[] = [];
-
-    const combinedText = [
-      text,
-      voice_transcript ? `[Voice transcript: ${voice_transcript}]` : null,
-    ]
-      .filter(Boolean)
-      .join("\n\n");
 
     if (combinedText) {
       userContent.push({ type: "text", text: combinedText });
