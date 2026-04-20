@@ -28,7 +28,7 @@ interface LockedSpec {
 function parseLockedSpec(encoded: string | null): LockedSpec | null {
   if (!encoded) return null;
   try {
-    const decoded = atob(decodeURIComponent(encoded));
+    const decoded = decodeURIComponent(escape(atob(decodeURIComponent(encoded))));
     const parsed = JSON.parse(decoded) as LockedSpec;
     if (!parsed.family || !parsed.parameters) return null;
     return parsed;

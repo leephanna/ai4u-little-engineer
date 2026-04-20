@@ -358,7 +358,7 @@ const TRUST_TIER_LABELS: Record<string, string> = {
 function buildMakeHref(card: GalleryCard): string {
   if (card.lockedSpec) {
     // Locked spec: encode as base64 JSON so /invent can skip the interpret step
-    const encoded = btoa(JSON.stringify(card.lockedSpec));
+    const encoded = btoa(unescape(encodeURIComponent(JSON.stringify(card.lockedSpec))));
     return `/invent?spec=${encodeURIComponent(encoded)}`;
   }
   // Concept-only: pass prompt through LLM interpret (user will see clarification)
