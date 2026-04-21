@@ -119,6 +119,7 @@ Rules:
 1. Always pick the CLOSEST family from the list above, even for unusual requests (e.g. "rocket" → "spacer" or "standoff_block")
 2. For organic/impossible shapes (car engine, human face, living creature, animal), return family: null with a helpful suggestion
 3. Infer dimensions from context clues. If none given, use sensible defaults for the part type (e.g. spacer default: outer_diameter=20, inner_diameter=5, length=10)
+   EXCEPTION: For cable_clip, NEVER default wall_thickness or base_width — always add them to missing_dims if not explicitly stated.
 4. Return confidence 0-100 based on how well the request maps to the family
 5. Include a one-sentence human-readable explanation of your reasoning
 6. List any dimensions you could NOT infer from the input in missing_dims
