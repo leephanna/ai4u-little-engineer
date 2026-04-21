@@ -104,11 +104,11 @@ Mapping guide for unusual requests:
 
 Available part families and their required parameters:
 - spacer: outer_diameter (mm), inner_diameter (mm), length (mm)
-- l_bracket: width (mm), height (mm), thickness (mm), flange_length (mm)
-- u_bracket: width (mm), height (mm), thickness (mm), depth (mm)
+- l_bracket: leg_a (mm), leg_b (mm), thickness (mm), width (mm)
+- u_bracket: pipe_od (mm), wall_thickness (mm), flange_width (mm), flange_length (mm)
 - hole_plate: length (mm), width (mm), thickness (mm), hole_count, hole_diameter (mm)
 - cable_clip: cable_od (mm), wall_thickness (mm), base_width (mm)
-- enclosure: length (mm), width (mm), height (mm), wall_thickness (mm)
+- enclosure: inner_length (mm), inner_width (mm), inner_height (mm), wall_thickness (mm)
 - flat_bracket: length (mm), width (mm), thickness (mm)
 - standoff_block: base_width (mm), height (mm), hole_diameter (mm)
 - adapter_bushing: outer_diameter (mm), inner_diameter (mm), length (mm)
@@ -120,6 +120,8 @@ Rules:
 2. For organic/impossible shapes (car engine, human face, living creature, animal), return family: null with a helpful suggestion
 3. Infer dimensions from context clues. If none given, use sensible defaults for the part type (e.g. spacer default: outer_diameter=20, inner_diameter=5, length=10)
    EXCEPTION: For cable_clip, NEVER default wall_thickness or base_width — always add them to missing_dims if not explicitly stated.
+   EXCEPTION: For enclosure, NEVER default wall_thickness — always add it to missing_dims if not explicitly stated.
+   EXCEPTION: For u_bracket, NEVER default flange_width or flange_length — always add them to missing_dims if not explicitly stated.
 4. Return confidence 0-100 based on how well the request maps to the family
 5. Include a one-sentence human-readable explanation of your reasoning
 6. List any dimensions you could NOT infer from the input in missing_dims
