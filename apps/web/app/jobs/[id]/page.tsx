@@ -169,13 +169,25 @@ export default async function JobDetailPage({ params }: PageProps) {
           </span>
         </div>
 
-        {/* Generate button — only shown in STATE 1 (spec ready, no run) */}
+        {/* Generate button — STATE 1 (spec ready, no run) */}
         {truthState === "spec_ready_no_run" && latestSpec && (
           <Link
             href={`/jobs/${id}/generate`}
             className="btn-primary text-sm py-1.5 px-3"
           >
             Generate
+          </Link>
+        )}
+
+        {/* Regenerate button — STATE 2 (run failed) or STATE 3 (success but no file) */}
+        {(truthState === "run_failed" ||
+          (truthState === "run_success_no_preview" && artifacts.every((a) => !a.storage_path))) &&
+          latestSpec && (
+          <Link
+            href={`/jobs/${id}/generate`}
+            className="btn-primary text-sm py-1.5 px-3"
+          >
+            Regenerate
           </Link>
         )}
 

@@ -8,7 +8,6 @@
  * It is NOT an official NASA model or NASA-endorsed product.
  */
 
-import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 import ArtemisIIDemoCard from "@/components/intake/ArtemisIIDemoCard";
 import BrandSignatureBlock from "@/components/BrandSignatureBlock";
@@ -22,8 +21,7 @@ export const metadata = {
 };
 
 export default async function ArtemisDemoPage() {
-  const supabase = await createClient();
-    const user = await getAuthUser();
+  const user = await getAuthUser();
   if (!user) {
     redirect("/sign-in");
   }

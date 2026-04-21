@@ -42,7 +42,7 @@ interface ArtifactListProps {
   jobId: string;
 }
 
-export function ArtifactList({ artifacts, jobId }: ArtifactListProps) {
+export function ArtifactList({ artifacts, jobId: _jobId }: ArtifactListProps) {
   const [expandedStl, setExpandedStl] = useState<string | null>(null);
 
   if (artifacts.length === 0) {
@@ -61,60 +61,82 @@ export function ArtifactList({ artifacts, jobId }: ArtifactListProps) {
 
   return (
     <div className="space-y-3">
-      {sorted.map((artifact) => (
-        <div key={artifact.id} className="card">
-          <div className="flex items-center gap-3">
-            <span className="text-xl flex-shrink-0">
-              {KIND_ICONS[artifact.kind] ?? "📄"}
-            </span>
+      {sorted.map((artifact) => {
+        const hasFile = !!artifact.storage_path;
 
-            <div className="flex-1 min-w-0">
-              <p className="text-steel-200 text-sm font-medium">
-                {KIND_LABELS[artifact.kind] ?? artifact.kind}
-              </p>
-              <p className="text-steel-500 text-xs truncate">{artifact.storage_path}</p>
+        return (
+          <div key={artifact.id} className="card">
+            <div className="flex items-center gap-3">
+              <span className="text-xl flex-shrink-0">
+                {KIND_ICONS[artifact.kind] ?? "📄"}
+              </span>
+
+              <div className="flex-1 min-w-0">
+                <p className="text-steel-200 text-sm font-medium">
+                  {KIND_LABELS[artifact.kind] ?? artifact.kind}
+                </p>
+                <p className="text-steel-500 text-xs truncate">
+                  {artifact.storage_path ?? "File not yet available"}
+                </p>
+              </div>
+
+              <div className="flex items-center gap-3 flex-shrink-0">
+                <p className="text-steel-400 text-xs">{formatBytes(artifact.file_size_bytes)}</p>
+
+                {artifact.kind === "stl" && hasFile && (
+                  <button
+                    onClick={() =>
+                      setExpandedStl(expandedStl === artifact.id ? null : artifact.id)
+                    }
+                    className="text-brand-400 hover:text-brand-300 text-xs transition-colors"
+                  >
+                    {expandedStl === artifact.id ? "Hide Preview" : "3D Preview"}
+                  </button>
+                )}
+
+                {hasFile ? (
+                  <a
+                    href={`/api/artifacts/${artifact.id}/download`}
+                    className="text-brand-400 hover:text-brand-300 text-xs transition-colors"
+                    download
+                  >
+                    Download
+                  </a>
+                ) : (
+                  <span
+                    className="text-steel-600 text-xs cursor-not-allowed"
+                    title="File not yet available — try regenerating this job"
+                  >
+                    Unavailable
+                  </span>
+                )}
+              </div>
             </div>
 
-            <div className="flex items-center gap-3 flex-shrink-0">
-              <p className="text-steel-400 text-xs">{formatBytes(artifact.file_size_bytes)}</p>
+            {/* Inline STL 3D preview — only when file is available */}
+            {artifact.kind === "stl" && hasFile && expandedStl === artifact.id && (
+              <div className="mt-4">
+                <StlViewer
+                  url={`/api/artifacts/${artifact.id}/download`}
+                  width={600}
+                  height={400}
+                  className="rounded-lg overflow-hidden"
+                />
+                <p className="text-steel-500 text-xs mt-2 text-center">
+                  Click and drag to rotate · Scroll to zoom · Right-click to pan
+                </p>
+              </div>
+            )}
 
-              {artifact.kind === "stl" && (
-                <button
-                  onClick={() =>
-                    setExpandedStl(expandedStl === artifact.id ? null : artifact.id)
-                  }
-                  className="text-brand-400 hover:text-brand-300 text-xs transition-colors"
-                >
-                  {expandedStl === artifact.id ? "Hide Preview" : "3D Preview"}
-                </button>
-              )}
-
-              <a
-                href={`/api/artifacts/${artifact.id}/download`}
-                className="text-brand-400 hover:text-brand-300 text-xs transition-colors"
-                download
-              >
-                Download
-              </a>
-            </div>
+            {/* Inline notice for missing file */}
+            {!hasFile && (
+              <div className="mt-2 text-xs text-amber-400 bg-amber-900/20 border border-amber-800/50 rounded px-3 py-1.5">
+                This artifact was generated before the storage upload fix. Use Regenerate to get a downloadable file.
+              </div>
+            )}
           </div>
-
-          {/* Inline STL 3D preview */}
-          {artifact.kind === "stl" && expandedStl === artifact.id && (
-            <div className="mt-4">
-              <StlViewer
-                url={`/api/artifacts/${artifact.id}/download`}
-                width={600}
-                height={400}
-                className="rounded-lg overflow-hidden"
-              />
-              <p className="text-steel-500 text-xs mt-2 text-center">
-                Click and drag to rotate · Scroll to zoom · Right-click to pan
-              </p>
-            </div>
-          )}
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 }

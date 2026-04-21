@@ -129,8 +129,8 @@ export interface Artifact {
   cad_run_id: string;
   job_id: string;
   kind: "step" | "stl" | "png" | "json_receipt" | "transcript" | "prompt" | "log";
-  /** Always non-null. The Trigger.dev pipeline guarantees this before inserting. */
-  storage_path: string;
+  /** Non-null for new jobs (post storage-upload fix). May be null for old jobs. */
+  storage_path: string | null;
   mime_type: string;
   file_size_bytes: number | null;
   created_at: string;
