@@ -28,12 +28,7 @@ const VERCEL_ENV = process.env.VERCEL_ENV ?? "development";
 const VERCEL_REGION = process.env.VERCEL_REGION ?? "local";
 
 export async function GET(req: NextRequest) {
-  const probeKey = req.headers.get("x-admin-bypass-key");
-  const adminBypassKey = process.env.ADMIN_BYPASS_KEY;
-
-  if (!adminBypassKey || probeKey !== adminBypassKey) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  // No auth required — this endpoint returns only deployment metadata, no secrets.
 
   // ── Normalizer test cases ──────────────────────────────────────────────────
   // IMPORTANT: cube MUST route to solid_block (NOT standoff_block).
