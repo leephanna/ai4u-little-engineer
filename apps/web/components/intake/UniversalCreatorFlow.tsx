@@ -4,23 +4,31 @@
  * UniversalCreatorFlow
  *
  * The full orchestration component for the universal creation experience.
- * Manages the state machine:
- *   idle → interpreting → clarifying → previewing → generating → done
- *                       ↘ soft_match (new) → generating → done
- *                       ↘ ai_unsupported (new)
  *
- * Embeds:
- *   - UniversalInputComposer
- *   - LivePrintPlan
- *   - ClarificationChat
- *   - VisualPreviewPanel
- *   - SoftMatchPanel (NEW — AI router soft_match state)
- *   - AiUnsupportedPanel (NEW — AI router unsupported state)
+ * State machine:
+ *   idle → routing (calls /api/invent directly)
+ *        ↘ soft_match    → SoftMatchPanel (editable dims + optional inline question)
+ *        ↘ ai_unsupported → AiUnsupportedPanel (graceful dead-end)
+ *        ↘ generating    → (job created by direct_match or SoftMatchPanel confirm)
+ *        ↘ done          → redirect to /jobs/[id]
+ *        ↘ clarifying    → ClarificationChat (fallback: no family identified)
+ *        ↘ previewing    → VisualPreviewPanel (fallback: interpret-based flow)
+ *        ↘ unsupported   → UnsupportedRequestPanel (Truth Gate rejection)
+ *
+ * IMPORTANT: The primary path is now:
+ *   1. User submits text → POST /api/invent
+ *   2. /api/invent runs normalizer fast-path, then AI router
+ *   3. AI router returns direct_match → job created immediately
+ *   4. AI router returns soft_match → SoftMatchPanel shown
+ *   5. AI router returns unsupported → AiUnsupportedPanel shown
+ *   6. AI router unavailable → fall back to /api/intake/interpret → clarify/preview
+ *
+ * The old interpret → clarify → preview path is preserved as a fallback
+ * for when the AI router is unavailable or returns null.
  *
  * Locked spec path (gallery items):
- *   When initialLockedSpec is provided, the component skips the interpret
- *   step entirely and goes straight to "previewing" with the pre-built spec.
- *   No clarification, no missing dims, no LLM call.
+ *   When initialLockedSpec is provided, the component skips all steps
+ *   and goes straight to "previewing" with the pre-built spec.
  */
 
 import { useState, useCallback, useEffect } from "react";
@@ -37,14 +45,15 @@ import type { InterpretationResult } from "@/app/api/intake/interpret/route";
 
 type FlowPhase =
   | "idle"
-  | "interpreting"
-  | "clarifying"
-  | "previewing"
+  | "routing"       // NEW: primary path — waiting for /api/invent response
+  | "interpreting"  // FALLBACK: waiting for /api/intake/interpret response
+  | "clarifying"    // FALLBACK: no family identified, show chat
+  | "previewing"    // FALLBACK: interpret-based preview
   | "generating"
   | "done"
-  | "unsupported"
-  | "soft_match"
-  | "ai_unsupported";
+  | "unsupported"   // Truth Gate rejection
+  | "soft_match"    // AI Router: soft_match state
+  | "ai_unsupported"; // AI Router: unsupported state
 
 interface TruthGateRejection {
   verdict: TruthVerdict;
@@ -83,8 +92,7 @@ interface Props {
   initialPrompt?: string;
   /**
    * Locked complete spec payload (used by Gallery "Make This" via ?spec= param).
-   * When provided, skips the interpret step entirely and goes straight to previewing.
-   * No clarification, no missing dims, no LLM call.
+   * When provided, skips all steps and goes straight to previewing.
    */
   initialLockedSpec?: LockedSpec;
 }
@@ -115,6 +123,8 @@ export default function UniversalCreatorFlow({
   const [softMatchState, setSoftMatchState] = useState<SoftMatchState | null>(null);
   const [aiUnsupportedState, setAiUnsupportedState] = useState<AiUnsupportedState | null>(null);
   const [prefilledPrompt, setPrefilledPrompt] = useState<string | undefined>(initialPrompt);
+  // Track the last submitted text so we can pass it to the fallback interpret path
+  const [lastSubmittedText, setLastSubmittedText] = useState<string>("");
 
   // ── Locked spec fast-path ─────────────────────────────────────────────────
   useEffect(() => {
@@ -138,7 +148,105 @@ export default function UniversalCreatorFlow({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // ── PRIMARY PATH: Submit directly to /api/invent ─────────────────────────
+  // This is the new primary flow. The AI router inside /api/invent handles
+  // direct_match, soft_match, and unsupported outcomes.
+  // If the AI router is unavailable, we fall back to the interpret path.
   const handleComposerSubmit = useCallback(async (payload: ComposerPayload) => {
+    const inputText = (payload.text ?? "").trim();
+    setLastSubmittedText(inputText);
+    setPhase("routing");
+    setError(null);
+
+    // If there are file attachments, fall back to the interpret path
+    // (the AI router doesn't handle file uploads)
+    if (payload.files && payload.files.length > 0) {
+      await handleInterpretFallback(payload);
+      return;
+    }
+
+    try {
+      const res = await fetch("/api/invent", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          problem: inputText,
+        }),
+      });
+
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+
+        // Truth Gate rejection (422)
+        if (res.status === 422 && (data.verdict === "REJECT" || data.verdict === "CLARIFY")) {
+          setTruthGateRejection({
+            verdict: data.verdict as TruthVerdict,
+            reason: data.reason ?? "This request could not be processed.",
+            truth_label: data.truth_label,
+            missing_dimensions: data.missing_dimensions,
+            confidence: data.confidence,
+          });
+          setPhase("unsupported");
+          return;
+        }
+
+        // Auth error — fall back to interpret path
+        if (res.status === 401) {
+          await handleInterpretFallback(payload);
+          return;
+        }
+
+        throw new Error("Routing failed");
+      }
+
+      const data = await res.json();
+
+      // ── AI Router: soft_match → show SoftMatchPanel ──────────────────────
+      if (data.status === "soft_match") {
+        setSoftMatchState({
+          family: data.family,
+          parameters: data.parameters ?? {},
+          explanation: data.explanation ?? "",
+          confidence: data.confidence ?? 50,
+          missing_dims: data.missing_dims ?? [],
+          clarification_question: data.clarification_question ?? null,
+        });
+        setPhase("soft_match");
+        return;
+      }
+
+      // ── AI Router: unsupported → show AiUnsupportedPanel ─────────────────
+      if (data.status === "unsupported") {
+        setAiUnsupportedState({
+          explanation: data.explanation ?? "This request could not be mapped to a supported part family.",
+          suggestions: data.suggestions ?? [],
+        });
+        setPhase("ai_unsupported");
+        return;
+      }
+
+      // ── AI Router: direct_match → job created ────────────────────────────
+      if (data.job_id) {
+        setJobId(data.job_id);
+        setPhase("done");
+        setTimeout(() => {
+          router.push(`/jobs/${data.job_id}`);
+        }, 1500);
+        return;
+      }
+
+      // ── Fallback: unexpected response → interpret path ───────────────────
+      await handleInterpretFallback(payload);
+    } catch {
+      // On any error, fall back to the interpret path
+      await handleInterpretFallback(payload);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [router]);
+
+  // ── FALLBACK PATH: /api/intake/interpret → clarify/preview ───────────────
+  // Used when: file uploads, auth errors, or AI router unavailable
+  const handleInterpretFallback = useCallback(async (payload: ComposerPayload) => {
     setPhase("interpreting");
     setError(null);
 
@@ -203,7 +311,7 @@ export default function UniversalCreatorFlow({
     [interpretation]
   );
 
-  // ── Core generate function — shared by previewing and soft_match paths ────
+  // ── Core generate function — used by previewing and soft_match paths ──────
   const doGenerate = useCallback(async (
     problemText: string,
     intakeFamilyCandidate: string | undefined,
@@ -295,7 +403,12 @@ export default function UniversalCreatorFlow({
         : "Create a 3D printable design",
       interpretation.inferred_scale ? `(${interpretation.inferred_scale})` : "",
       Object.keys(interpretation.extracted_dimensions ?? {}).length > 0
-        ? `with dimensions: ${Object.entries(interpretation.extracted_dimensions)
+        ? `with dimensions: ${Object.entries(interpretation.extracted_dimensions ?? {})
+            .map(([k, v]) => `${k}=${v}mm`)
+            .join(", ")}`
+        : "",
+      fitEnvelope
+        ? `fit envelope: ${Object.entries(fitEnvelope)
             .map(([k, v]) => `${k}=${v}mm`)
             .join(", ")}`
         : "",
@@ -310,7 +423,7 @@ export default function UniversalCreatorFlow({
       interpretation.session_id,
       interpretation.mode,
     );
-  }, [interpretation, fitEnvelope, doGenerate]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [interpretation, fitEnvelope, doGenerate]);
 
   // ── Soft match: user confirmed dims → generate ────────────────────────────
   const handleSoftMatchGenerate = useCallback(async (
@@ -342,6 +455,7 @@ export default function UniversalCreatorFlow({
     setSoftMatchState(null);
     setAiUnsupportedState(null);
     setPrefilledPrompt(undefined);
+    setLastSubmittedText("");
   }, []);
 
   // ── Try example prompt from AiUnsupportedPanel ────────────────────────────
@@ -378,6 +492,16 @@ export default function UniversalCreatorFlow({
     );
   }, [interpretation, doGenerate]);
 
+  // Whether the input composer should be shown
+  const showComposer = (phase === "idle" || phase === "routing" || phase === "interpreting") && !initialLockedSpec;
+
+  // Whether the clarify_required banner should be suppressed:
+  // Suppress when the AI router has already identified a family (soft_match state)
+  // or when we're in the fallback clarify path with a known family candidate
+  const familyIsKnown =
+    phase === "soft_match" ||
+    (phase === "clarifying" && interpretation?.family_candidate != null && interpretation.family_candidate !== "");
+
   return (
     <div className="space-y-4">
       {/* Locked spec banner */}
@@ -391,14 +515,14 @@ export default function UniversalCreatorFlow({
         </div>
       )}
 
-      {/* Input composer — idle and interpreting phases */}
-      {(phase === "idle" || phase === "interpreting") && !initialLockedSpec && (
+      {/* Input composer — idle, routing, and interpreting phases */}
+      {showComposer && (
         <UniversalInputComposer
           onSubmit={handleComposerSubmit}
-          isLoading={phase === "interpreting"}
+          isLoading={phase === "routing" || phase === "interpreting"}
           examplePrompts={examplePrompts}
           placeholder="Describe what you want to create, upload a photo or sketch, or use your voice…"
-          submitLabel="Interpret →"
+          submitLabel={phase === "routing" || phase === "interpreting" ? "Thinking…" : "Create →"}
           initialValue={prefilledPrompt}
         />
       )}
@@ -451,13 +575,23 @@ export default function UniversalCreatorFlow({
         />
       )}
 
-      {/* Live Print Plan */}
+      {/* Live Print Plan (fallback clarify/preview path) */}
       {(phase === "clarifying" || phase === "previewing") && interpretation && (
         <LivePrintPlan result={interpretation} isLoading={false} />
       )}
 
-      {/* Clarification chat */}
-      {phase === "clarifying" && !showFallbackForm && interpretation?.assistant_message && (
+      {/* Clarification chat — ONLY shown when family is NOT known */}
+      {phase === "clarifying" && !showFallbackForm && interpretation?.assistant_message && !familyIsKnown && (
+        <ClarificationChat
+          sessionId={interpretation.session_id}
+          initialQuestion={interpretation.assistant_message}
+          onReady={handleClarifyReady}
+          onUpdate={handleClarifyUpdate}
+        />
+      )}
+
+      {/* Clarification chat — shown when family IS known (no banner, just chat) */}
+      {phase === "clarifying" && !showFallbackForm && interpretation?.assistant_message && familyIsKnown && (
         <ClarificationChat
           sessionId={interpretation.session_id}
           initialQuestion={interpretation.assistant_message}

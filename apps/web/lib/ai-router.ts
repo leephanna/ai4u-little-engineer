@@ -54,11 +54,53 @@ interface RouterLlmResponse {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Valid family list — MUST match MVP_PART_FAMILIES in @ai4u/shared
+// ─────────────────────────────────────────────────────────────────────────────
+
+export const VALID_FAMILIES = [
+  "spacer",
+  "l_bracket",
+  "u_bracket",
+  "hole_plate",
+  "cable_clip",
+  "enclosure",
+  "flat_bracket",
+  "standoff_block",
+  "adapter_bushing",
+  "simple_jig",
+  "solid_block",
+] as const;
+
+export type ValidFamily = typeof VALID_FAMILIES[number];
+
+// ─────────────────────────────────────────────────────────────────────────────
 // System prompt
 // ─────────────────────────────────────────────────────────────────────────────
 
 const ROUTER_SYSTEM_PROMPT = `You are a parametric CAD routing assistant for AI4U Little Engineer.
 Your job is to map any user request to the best available 3D-printable part family and infer reasonable default dimensions.
+
+CRITICAL: You MUST return the "family" field as EXACTLY one of these strings (case-sensitive), or null if no family fits:
+  "spacer" | "l_bracket" | "u_bracket" | "hole_plate" | "cable_clip" |
+  "enclosure" | "flat_bracket" | "standoff_block" | "adapter_bushing" |
+  "simple_jig" | "solid_block"
+
+NEVER return human-readable names like "Rocket Model", "Cable Holder", "Electronics Enclosure", "Cylinder", "Box", etc.
+These will break the system. Only the exact strings above are valid.
+
+Mapping guide for unusual requests:
+- rocket, missile, cylinder shape, tube, pipe → "spacer" (if hollow) or "standoff_block" (if solid post)
+- box, enclosure, case, container, housing, shell → "enclosure"
+- clip, holder, clamp for wires/cables → "cable_clip"
+- plate with holes, mounting plate, perforated plate → "hole_plate"
+- bracket, angle bracket, L-shape, corner mount → "l_bracket"
+- U-shape, saddle, pipe clamp → "u_bracket"
+- flat plate, strap, bar, shelf bracket → "flat_bracket"
+- bushing, sleeve, adapter, bore reducer → "adapter_bushing"
+- block, cube, rectangular solid, box without lid → "solid_block"
+- jig, fixture, alignment tool, drill guide → "simple_jig"
+- post, standoff, riser, pillar, column, pedestal → "standoff_block"
+- ring, washer, spacer, tube, hollow cylinder → "spacer"
 
 Available part families and their required parameters:
 - spacer: outer_diameter (mm), inner_diameter (mm), length (mm)
@@ -74,8 +116,8 @@ Available part families and their required parameters:
 - solid_block: length (mm), width (mm), height (mm)
 
 Rules:
-1. Always pick the CLOSEST family even for unusual requests (e.g. "rocket" → spacer or standoff_block)
-2. For organic/impossible shapes (car engine, human face, living creature), return family: null with a helpful suggestion
+1. Always pick the CLOSEST family from the list above, even for unusual requests (e.g. "rocket" → "spacer" or "standoff_block")
+2. For organic/impossible shapes (car engine, human face, living creature, animal), return family: null with a helpful suggestion
 3. Infer dimensions from context clues. If none given, use sensible defaults for the part type (e.g. spacer default: outer_diameter=20, inner_diameter=5, length=10)
 4. Return confidence 0-100 based on how well the request maps to the family
 5. Include a one-sentence human-readable explanation of your reasoning
@@ -143,6 +185,19 @@ export async function runAiRouter(
     }
     if (!Array.isArray(llm.missing_dims)) llm.missing_dims = [];
     if (!llm.explanation) llm.explanation = "Mapped to closest available part family.";
+
+    // ── CRITICAL: Validate family is one of the allowed strings ──────────────
+    // The LLM sometimes returns human-readable names like "Rocket Model" or
+    // "Cable Holder" instead of the canonical family identifiers. Reject these.
+    if (llm.family !== null) {
+      const isValid = (VALID_FAMILIES as readonly string[]).includes(llm.family);
+      if (!isValid) {
+        console.warn(`[ai-router] LLM returned invalid family: "${llm.family}" — setting to null`);
+        llm.family = null;
+        llm.confidence = 0;
+        llm.missing_dims = [];
+      }
+    }
 
     const outcome = classifyOutcome(llm);
 
