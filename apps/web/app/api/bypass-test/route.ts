@@ -17,7 +17,12 @@ export async function GET(request: NextRequest) {
     probe_key_length: probeKey?.length ?? 0,
     admin_key_set: !!adminBypassKey,
     admin_key_length: adminBypassKey?.length ?? 0,
-    keys_match: probeKey === adminBypassKey,
+    // Show last 8 chars of stored key to diagnose extra characters (safe - partial only)
+    admin_key_tail: adminBypassKey ? adminBypassKey.slice(-8) : null,
+    admin_key_tail_hex: adminBypassKey
+      ? Buffer.from(adminBypassKey.slice(-8)).toString("hex")
+      : null,
+    keys_match: probeKey?.trim() === adminBypassKey,
     is_owner_probe: !!isOwnerProbe,
   });
 }
