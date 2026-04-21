@@ -1,4 +1,5 @@
 import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
+import { NextResponse } from "next/server";
 
 const isProtectedRoute = createRouteMatcher([
   "/invent(.*)",
@@ -8,7 +9,23 @@ const isProtectedRoute = createRouteMatcher([
   "/admin(.*)",
 ]);
 
+// API routes that support admin bypass key — skip Clerk auth when the key is present
+const isAdminBypassableRoute = createRouteMatcher([
+  "/api/invent(.*)",
+  "/api/intake/(.*)",
+]);
+
 export default clerkMiddleware((auth, req) => {
+  // Allow admin bypass key to skip Clerk auth on bypassable API routes
+  if (isAdminBypassableRoute(req)) {
+    const bypassKey = req.headers.get("x-admin-bypass-key");
+    const adminKey = process.env.ADMIN_BYPASS_KEY;
+    if (adminKey && bypassKey === adminKey) {
+      // Valid admin bypass — let the request through without Clerk auth
+      return NextResponse.next();
+    }
+  }
+
   if (isProtectedRoute(req)) {
     auth().protect();
   }
