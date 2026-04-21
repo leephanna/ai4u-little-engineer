@@ -1,20 +1,26 @@
 /**
  * POST /api/invent
  *
- * Auto-Invention Engine — converts a plain-English problem description into a
- * printable CAD solution using structured JSON output from an LLM.
+ * Adaptive Invention Engine — converts a plain-English problem description into a
+ * printable CAD solution.
  *
  * Flow:
- *   1. Parse problem text
- *   2. LLM → structured JSON { family, parameters, reasoning, confidence }
- *   3. Validate family + parameters against capability_registry
- *   4. Reject impossible/unsafe designs
- *   5. Create session → job → part_spec → trigger CAD pipeline
- *   6. Save invention_request audit record
- *   7. Return { invention_id, job_id, family, parameters, reasoning, confidence }
+ *   1. Auth check (Clerk or admin bypass key)
+ *   2. Parse request body
+ *   3. Fast-path A: primitive normalizer (cube, cylinder, spacer, standoff)
+ *      → If matched, skip all LLM calls
+ *   4. Fast-path B: pre-resolved intake (from UniversalCreatorFlow)
+ *      → If family + dims already provided, skip LLM
+ *   5. AI Router (NEW): gpt-4.1-mini maps input to best family
+ *      → direct_match (≥75% confidence, no missing dims) → create job
+ *      → soft_match (≥50% OR missing dims) → return { status: "soft_match" }
+ *      → unsupported (null family) → return { status: "unsupported" }
+ *   6. Truth Gate validation
+ *   7. Create session → job → part_spec → trigger CAD pipeline
+ *   8. Fire-and-forget router_log insert
+ *   9. Return result
  *
  * The client polls /api/jobs/[jobId] for CAD generation status.
- * On completion, the job page shows the STL + explanation + save/publish/sell actions.
  */
 
 import { NextRequest, NextResponse } from "next/server";
@@ -31,10 +37,11 @@ import {
 import { tryNormalizePrimitive } from "@/lib/primitive-normalizer";
 import { runTruthGate, formatTruthGateReceipt } from "@/lib/truth-gate";
 import { getAuthUser } from "@/lib/auth";
+import { runAiRouter } from "@/lib/ai-router";
 
-// ─────────────────────────────────────────────────────────────
-// LLM Invention Prompt
-// ─────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+// Legacy LLM Invention Prompt (fallback when AI router is unavailable)
+// ─────────────────────────────────────────────────────────────────────────────
 
 const INVENTION_SYSTEM_PROMPT = `You are an expert mechanical engineer and 3D printing specialist.
 Your job is to convert a plain-English problem description into a concrete, printable CAD solution.
@@ -73,9 +80,9 @@ RESPONSE FORMAT (strict JSON, no markdown):
 If confidence < 0.5, set rejection_reason to explain why the problem cannot be solved.
 Always include ALL required dimensions for the selected family. Use realistic values based on the problem context.`;
 
-// ─────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
 // Validation helpers
-// ─────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
 
 interface InventionResult {
   family: string;
@@ -119,9 +126,21 @@ function validateInventionResult(result: InventionResult): string | null {
   return null;
 }
 
-// ─────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+// Example prompts for the graceful unsupported response
+// ─────────────────────────────────────────────────────────────────────────────
+
+const EXAMPLE_PROMPTS = [
+  { label: "M5 spacer, 20mm OD, 5mm bore, 15mm tall", family: "spacer" },
+  { label: "Cable clip for a 6mm cable, 3mm wall, 20mm wide", family: "cable_clip" },
+  { label: "Small electronics box, 50×30×20mm inside, 2mm walls", family: "enclosure" },
+  { label: "L-bracket mount, 50mm wide, 40mm tall, 3mm thick", family: "l_bracket" },
+  { label: "Standoff block, 20mm base, 15mm tall, 3mm hole", family: "standoff_block" },
+];
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Main handler
-// ─────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
 
 // ── Commit SHA baked in at build time ────────────────────────────────────────
 const COMMIT_SHA = process.env.VERCEL_GIT_COMMIT_SHA ?? "local";
@@ -178,15 +197,15 @@ export async function POST(request: NextRequest) {
 
     const problemText = rawDescription.trim().slice(0, 1000); // cap at 1000 chars
 
-    // ── Step 1: LLM → structured invention (or fast-path) ───────
-    // Fast-path A: primitive shape normalizer — detects "cube", "cylinder", etc.
-    // before any LLM call. This ensures canonical primitives are never mis-routed.
+    // ── Step 1: Fast-path A — primitive shape normalizer ─────────────────────
+    // Detects "cube", "cylinder", "spacer", "standoff" etc. BEFORE any LLM call.
+    // This ensures canonical primitives are never mis-routed.
+    // IMPORTANT: This fast-path is NEVER bypassed by the AI router.
     const primitiveNorm = (!intake_family_candidate)
       ? tryNormalizePrimitive(problemText)
       : null;
 
-    // Fast-path B: if the caller already resolved the family + dimensions (e.g. from
-    // the UniversalCreatorFlow interpretation engine), skip the LLM call entirely.
+    // ── Step 2: Fast-path B — pre-resolved intake from UniversalCreatorFlow ──
     const hasFastPath =
       (intake_family_candidate &&
       MVP_PART_FAMILIES.includes(intake_family_candidate as MvpPartFamily) &&
@@ -195,8 +214,14 @@ export async function POST(request: NextRequest) {
       !!primitiveNorm;
 
     let inventionResult: InventionResult;
+    let aiRouterOutcome: string | null = null;
+    let aiRouterExplanation: string | null = null;
+    let aiRouterMissingDims: string[] = [];
+    let aiRouterClarificationQuestion: string | null = null;
+    let aiRouterConfidence: number | null = null;
+
     if (primitiveNorm) {
-      // Primitive normalizer fast-path
+      // ── Fast-path A: primitive normalizer matched ─────────────────────────
       inventionResult = {
         family: primitiveNorm.family,
         parameters: primitiveNorm.parameters,
@@ -204,8 +229,9 @@ export async function POST(request: NextRequest) {
         confidence: primitiveNorm.confidence,
         rejection_reason: null,
       };
+      aiRouterOutcome = "primitive_fast_path";
     } else if (hasFastPath) {
-      // Build InventionResult directly from the pre-resolved intake data
+      // ── Fast-path B: pre-resolved intake ─────────────────────────────────
       inventionResult = {
         family: intake_family_candidate as string,
         parameters: intake_dimensions as Record<string, number>,
@@ -213,34 +239,105 @@ export async function POST(request: NextRequest) {
         confidence: 0.9,
         rejection_reason: null,
       };
+      aiRouterOutcome = "intake_fast_path";
     } else {
-      try {
-        const completion = await openai.chat.completions.create({
-          model: "gpt-4.1-mini",
-          messages: [
-            { role: "system", content: INVENTION_SYSTEM_PROMPT },
-            {
-              role: "user",
-              content: `Problem: "${problemText}"\n\nDesign a 3D-printable solution.`,
-            },
-          ],
-          response_format: { type: "json_object" },
-          temperature: 0.3,
-          max_tokens: 600,
-        });
+      // ── Step 3: AI Router — LLM-powered routing ───────────────────────────
+      const routerResult = await runAiRouter(problemText, openai);
 
-        const raw = completion.choices[0]?.message?.content ?? "{}";
-        inventionResult = JSON.parse(raw) as InventionResult;
-      } catch (err) {
-        console.error("LLM invention error:", err);
-        return NextResponse.json(
-          { error: "Invention engine failed. Please try again." },
-          { status: 500 }
-        );
+      if (routerResult) {
+        aiRouterOutcome = routerResult.outcome;
+        aiRouterExplanation = routerResult.explanation;
+        aiRouterMissingDims = routerResult.missing_dims;
+        aiRouterClarificationQuestion = routerResult.clarification_question;
+        aiRouterConfidence = routerResult.confidence;
+
+        // ── soft_match: return early — client shows editable dims UI ─────────
+        if (routerResult.outcome === "soft_match") {
+          // Fire-and-forget router log (non-blocking)
+          void (async () => {
+            try {
+              await serviceSupabase.from("router_log").insert({
+                raw_input: problemText,
+                routed_family: routerResult.family,
+                confidence: Math.round(routerResult.confidence),
+                ai_explanation: routerResult.explanation,
+                user_accepted: false,
+              });
+            } catch { /* non-fatal */ }
+          })();
+
+          return NextResponse.json({
+            status: "soft_match",
+            family: routerResult.family,
+            parameters: routerResult.parameters,
+            explanation: routerResult.explanation,
+            confidence: routerResult.confidence,
+            missing_dims: routerResult.missing_dims,
+            clarification_question: routerResult.clarification_question,
+          });
+        }
+
+        // ── unsupported: return early — client shows graceful dead-end ────────
+        if (routerResult.outcome === "unsupported") {
+          // Fire-and-forget router log (non-blocking)
+          void (async () => {
+            try {
+              await serviceSupabase.from("router_log").insert({
+                raw_input: problemText,
+                routed_family: null,
+                confidence: Math.round(routerResult.confidence),
+                ai_explanation: routerResult.explanation,
+                user_accepted: false,
+              });
+            } catch { /* non-fatal */ }
+          })();
+
+          return NextResponse.json({
+            status: "unsupported",
+            explanation: routerResult.explanation,
+            suggestions: EXAMPLE_PROMPTS.slice(0, 3),
+          });
+        }
+
+        // ── direct_match: proceed to job creation ─────────────────────────────
+        inventionResult = {
+          family: routerResult.family as string,
+          parameters: routerResult.parameters,
+          reasoning: routerResult.explanation,
+          confidence: routerResult.confidence / 100, // normalize to 0-1 for truth gate
+          rejection_reason: null,
+        };
+      } else {
+        // ── AI router failed — fall back to legacy LLM invention prompt ───────
+        try {
+          const completion = await openai.chat.completions.create({
+            model: "gpt-4.1-mini",
+            messages: [
+              { role: "system", content: INVENTION_SYSTEM_PROMPT },
+              {
+                role: "user",
+                content: `Problem: "${problemText}"\n\nDesign a 3D-printable solution.`,
+              },
+            ],
+            response_format: { type: "json_object" },
+            temperature: 0.3,
+            max_tokens: 600,
+          });
+
+          const raw = completion.choices[0]?.message?.content ?? "{}";
+          inventionResult = JSON.parse(raw) as InventionResult;
+          aiRouterOutcome = "legacy_fallback";
+        } catch (err) {
+          console.error("LLM invention error:", err);
+          return NextResponse.json(
+            { error: "Invention engine failed. Please try again." },
+            { status: 500 }
+          );
+        }
       }
     }
 
-    // ── Step 2: Truth Gate — validate and reject unsafe designs ──
+    // ── Step 4: Truth Gate — validate and reject unsafe designs ──────────────
     const truthGateInput = {
       family: inventionResult.family,
       dimensions: inventionResult.parameters ?? {},
@@ -282,7 +379,7 @@ export async function POST(request: NextRequest) {
     // CONCEPT_ONLY: generate the job but mark it as concept-only
     const isConceptOnly = truthGateResult.verdict === "CONCEPT_ONLY";
 
-    // ── Step 3: Create session → job → part_spec ────────────────
+    // ── Step 5: Create session → job → part_spec ─────────────────────────────
 
     // [STEP: session-create]
     console.log(`[invent] step=session-create clerk_user_id=${effectiveUser.id}`);
@@ -349,12 +446,9 @@ export async function POST(request: NextRequest) {
     }
     console.log(`[invent] OK step=part-spec-insert part_spec_id=${partSpec.id}`);
 
-    // ── Step 4: Trigger CAD generation pipeline ─────────────────
+    // ── Step 6: Trigger CAD generation pipeline ───────────────────────────────
 
     // [STEP: profile-bootstrap]
-    // SELECT-then-INSERT pattern (avoids onConflict which requires a UNIQUE CONSTRAINT,
-    // not just a unique index — the profiles table only has a unique index on clerk_user_id).
-    // NOTE: public.profiles has NO email column. Do NOT add email here.
     console.log(`[invent] step=profile-bootstrap clerk_user_id=${effectiveUser.id}`);
     const { data: existingProfile } = await serviceSupabase
       .from("profiles")
@@ -365,16 +459,13 @@ export async function POST(request: NextRequest) {
       const { error: insertProfileError } = await serviceSupabase
         .from("profiles")
         .insert({
-          id: crypto.randomUUID(),  // profiles.id has no DEFAULT — must supply explicitly
+          id: crypto.randomUUID(),
           clerk_user_id: effectiveUser.id,
           plan: "free",
           generations_this_month: 0,
           generation_month: new Date().toISOString().slice(0, 7),
         });
       if (insertProfileError && insertProfileError.code !== "23505") {
-        // 23505 = unique_violation (race condition — safe to ignore)
-        // 23503 = foreign_key_violation (profiles.id REFERENCES auth.users — Clerk users have no auth.users row)
-        // In both cases: log the warning and continue — profile is non-critical for job creation
         console.warn("[invent] WARN step=profile-bootstrap (non-fatal)", JSON.stringify(insertProfileError));
       }
     }
@@ -476,7 +567,7 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // ── Step 5: Save invention_request audit record ─────────────
+    // ── Step 7: Save invention_request audit record ───────────────────────────
     const { data: inventionRecord } = await serviceSupabase
       .from("invention_requests")
       .insert({
@@ -492,7 +583,23 @@ export async function POST(request: NextRequest) {
       .select("id")
       .single();
 
-        // ── Step 6: Return result ────────────────────────────
+    // ── Step 8: Fire-and-forget router_log insert ─────────────────────────────
+    void (async () => {
+      try {
+        await serviceSupabase.from("router_log").insert({
+          raw_input: problemText,
+          routed_family: inventionResult.family,
+          confidence: aiRouterConfidence !== null
+            ? Math.round(aiRouterConfidence)
+            : Math.round((inventionResult.confidence ?? 0) * 100),
+          ai_explanation: aiRouterExplanation ?? inventionResult.reasoning,
+          user_accepted: true,
+          final_family: inventionResult.family,
+        });
+      } catch { /* non-fatal — never block main flow */ }
+    })();
+
+    // ── Step 9: Return result ─────────────────────────────────────────────────
     return NextResponse.json({
       invention_id: inventionRecord?.id ?? null,
       job_id: job.id,
@@ -506,6 +613,9 @@ export async function POST(request: NextRequest) {
       truth_label: truthGateResult.truth_label,
       is_concept_only: isConceptOnly,
       truth_gate_receipt: truthGateReceipt,
+      // AI router metadata (informational)
+      ai_router_outcome: aiRouterOutcome,
+      ai_router_explanation: aiRouterExplanation,
       status: "generating",
     });
   } catch (err) {

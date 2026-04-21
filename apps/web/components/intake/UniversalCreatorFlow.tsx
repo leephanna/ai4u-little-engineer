@@ -6,12 +6,16 @@
  * The full orchestration component for the universal creation experience.
  * Manages the state machine:
  *   idle → interpreting → clarifying → previewing → generating → done
+ *                       ↘ soft_match (new) → generating → done
+ *                       ↘ ai_unsupported (new)
  *
  * Embeds:
  *   - UniversalInputComposer
  *   - LivePrintPlan
  *   - ClarificationChat
  *   - VisualPreviewPanel
+ *   - SoftMatchPanel (NEW — AI router soft_match state)
+ *   - AiUnsupportedPanel (NEW — AI router unsupported state)
  *
  * Locked spec path (gallery items):
  *   When initialLockedSpec is provided, the component skips the interpret
@@ -27,9 +31,20 @@ import ClarificationChat from "./ClarificationChat";
 import VisualPreviewPanel from "./VisualPreviewPanel";
 import { ClarifyFallbackForm } from "./ClarifyFallbackForm";
 import { UnsupportedRequestPanel, type TruthVerdict } from "./UnsupportedRequestPanel";
+import { SoftMatchPanel } from "./SoftMatchPanel";
+import { AiUnsupportedPanel, type ExamplePrompt } from "./AiUnsupportedPanel";
 import type { InterpretationResult } from "@/app/api/intake/interpret/route";
 
-type FlowPhase = "idle" | "interpreting" | "clarifying" | "previewing" | "generating" | "done" | "unsupported";
+type FlowPhase =
+  | "idle"
+  | "interpreting"
+  | "clarifying"
+  | "previewing"
+  | "generating"
+  | "done"
+  | "unsupported"
+  | "soft_match"
+  | "ai_unsupported";
 
 interface TruthGateRejection {
   verdict: TruthVerdict;
@@ -37,6 +52,20 @@ interface TruthGateRejection {
   truth_label?: string;
   missing_dimensions?: string[];
   confidence?: number;
+}
+
+interface SoftMatchState {
+  family: string;
+  parameters: Record<string, number>;
+  explanation: string;
+  confidence: number;
+  missing_dims: string[];
+  clarification_question: string | null;
+}
+
+interface AiUnsupportedState {
+  explanation: string;
+  suggestions: ExamplePrompt[];
 }
 
 interface LockedSpec {
@@ -83,13 +112,13 @@ export default function UniversalCreatorFlow({
   const [fitEnvelope, setFitEnvelope] = useState<Record<string, number> | null>(null);
   const [showFallbackForm, setShowFallbackForm] = useState(false);
   const [truthGateRejection, setTruthGateRejection] = useState<TruthGateRejection | null>(null);
+  const [softMatchState, setSoftMatchState] = useState<SoftMatchState | null>(null);
+  const [aiUnsupportedState, setAiUnsupportedState] = useState<AiUnsupportedState | null>(null);
+  const [prefilledPrompt, setPrefilledPrompt] = useState<string | undefined>(initialPrompt);
 
   // ── Locked spec fast-path ─────────────────────────────────────────────────
-  // When a gallery item provides a locked complete spec, skip interpret entirely
-  // and go straight to previewing state.
   useEffect(() => {
     if (initialLockedSpec && phase === "idle") {
-      // Build a synthetic InterpretationResult from the locked spec
       const syntheticResult: InterpretationResult = {
         mode: "parametric_part",
         family_candidate: initialLockedSpec.family,
@@ -129,8 +158,6 @@ export default function UniversalCreatorFlow({
       const result: InterpretationResult = await res.json();
       setInterpretation(result);
 
-      // If primitive normalizer resolved it (is_primitive=true) or no missing info,
-      // skip clarification and go straight to previewing
       if (
         (result as InterpretationResult & { is_primitive?: boolean }).is_primitive ||
         result.mode !== "needs_clarification" && (result.missing_information?.length ?? 0) === 0
@@ -154,9 +181,7 @@ export default function UniversalCreatorFlow({
   const handleClarifyUpdate = useCallback(
     (updated: { updated_dimensions: Record<string, number>; updated_confidence: number; updated_mode: string; fit_envelope?: Record<string, number> | null; fallback_form?: boolean }) => {
       if (!interpretation) return;
-      // Store fit_envelope if returned
       if (updated.fit_envelope) setFitEnvelope(updated.fit_envelope);
-      // If the clarify route signals fallback_form, show the structured form
       if (updated.fallback_form) {
         setShowFallbackForm(true);
         return;
@@ -178,38 +203,27 @@ export default function UniversalCreatorFlow({
     [interpretation]
   );
 
-  const handleConfirmGenerate = useCallback(async () => {
-    if (!interpretation) return;
+  // ── Core generate function — shared by previewing and soft_match paths ────
+  const doGenerate = useCallback(async (
+    problemText: string,
+    intakeFamilyCandidate: string | undefined,
+    intakeDimensions: Record<string, number> | undefined,
+    intakeSessionId: string | undefined,
+    intakeMode: string | undefined,
+  ) => {
     setPhase("generating");
     setError(null);
 
     try {
-      // Build a problem text from the interpretation for the existing /api/invent route
-      const problemText = [
-        interpretation.inferred_object_type
-          ? `Create a ${interpretation.inferred_object_type}`
-          : "Create a 3D printable design",
-        interpretation.inferred_scale ? `(${interpretation.inferred_scale})` : "",
-        Object.keys(interpretation.extracted_dimensions ?? {}).length > 0
-          ? `with dimensions: ${Object.entries(interpretation.extracted_dimensions)
-              .map(([k, v]) => `${k}=${v}mm`)
-              .join(", ")}`
-          : "",
-      ]
-        .filter(Boolean)
-        .join(" ");
-
       const res = await fetch("/api/invent", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           problem: problemText,
-          intake_session_id: interpretation.session_id,
-          intake_mode: interpretation.mode,
-          intake_family_candidate: interpretation.family_candidate,
-          intake_dimensions: interpretation.extracted_dimensions,
-          // Pass fit_envelope so the invent route can derive correct sizing
-          intake_fit_envelope: fitEnvelope ?? undefined,
+          intake_session_id: intakeSessionId,
+          intake_mode: intakeMode,
+          intake_family_candidate: intakeFamilyCandidate,
+          intake_dimensions: intakeDimensions,
         }),
       });
 
@@ -220,7 +234,6 @@ export default function UniversalCreatorFlow({
           setPhase("previewing");
           return;
         }
-        // Truth Gate rejection: show honest unsupported panel
         if (res.status === 422 && (data.verdict === "REJECT" || data.verdict === "CLARIFY")) {
           setTruthGateRejection({
             verdict: data.verdict as TruthVerdict,
@@ -236,10 +249,34 @@ export default function UniversalCreatorFlow({
       }
 
       const data = await res.json();
+
+      // ── AI Router: soft_match response ──────────────────────────────────────
+      if (data.status === "soft_match") {
+        setSoftMatchState({
+          family: data.family,
+          parameters: data.parameters ?? {},
+          explanation: data.explanation ?? "",
+          confidence: data.confidence ?? 50,
+          missing_dims: data.missing_dims ?? [],
+          clarification_question: data.clarification_question ?? null,
+        });
+        setPhase("soft_match");
+        return;
+      }
+
+      // ── AI Router: unsupported response ─────────────────────────────────────
+      if (data.status === "unsupported") {
+        setAiUnsupportedState({
+          explanation: data.explanation ?? "This request could not be mapped to a supported part family.",
+          suggestions: data.suggestions ?? [],
+        });
+        setPhase("ai_unsupported");
+        return;
+      }
+
+      // ── Normal: job created ──────────────────────────────────────────────────
       setJobId(data.job_id);
       setPhase("done");
-
-      // Redirect to job page after a brief moment
       setTimeout(() => {
         router.push(`/jobs/${data.job_id}`);
       }, 1500);
@@ -247,7 +284,52 @@ export default function UniversalCreatorFlow({
       setError("Generation failed. Please try again.");
       setPhase("previewing");
     }
-  }, [interpretation, fitEnvelope, router]);
+  }, [router]);
+
+  const handleConfirmGenerate = useCallback(async () => {
+    if (!interpretation) return;
+
+    const problemText = [
+      interpretation.inferred_object_type
+        ? `Create a ${interpretation.inferred_object_type}`
+        : "Create a 3D printable design",
+      interpretation.inferred_scale ? `(${interpretation.inferred_scale})` : "",
+      Object.keys(interpretation.extracted_dimensions ?? {}).length > 0
+        ? `with dimensions: ${Object.entries(interpretation.extracted_dimensions)
+            .map(([k, v]) => `${k}=${v}mm`)
+            .join(", ")}`
+        : "",
+    ]
+      .filter(Boolean)
+      .join(" ");
+
+    await doGenerate(
+      problemText,
+      interpretation.family_candidate ?? undefined,
+      interpretation.extracted_dimensions,
+      interpretation.session_id,
+      interpretation.mode,
+    );
+  }, [interpretation, fitEnvelope, doGenerate]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Soft match: user confirmed dims → generate ────────────────────────────
+  const handleSoftMatchGenerate = useCallback(async (
+    family: string,
+    parameters: Record<string, number>
+  ) => {
+    const dimStr = Object.entries(parameters)
+      .map(([k, v]) => `${k}=${v}mm`)
+      .join(", ");
+    const problemText = `Create a ${family.replace(/_/g, " ")} with dimensions: ${dimStr}`;
+
+    await doGenerate(
+      problemText,
+      family,
+      parameters,
+      undefined,
+      "parametric_part",
+    );
+  }, [doGenerate]);
 
   const handleReset = useCallback(() => {
     setPhase("idle");
@@ -257,6 +339,17 @@ export default function UniversalCreatorFlow({
     setFitEnvelope(null);
     setShowFallbackForm(false);
     setTruthGateRejection(null);
+    setSoftMatchState(null);
+    setAiUnsupportedState(null);
+    setPrefilledPrompt(undefined);
+  }, []);
+
+  // ── Try example prompt from AiUnsupportedPanel ────────────────────────────
+  const handleTryExample = useCallback((prompt: string) => {
+    setPhase("idle");
+    setAiUnsupportedState(null);
+    setError(null);
+    setPrefilledPrompt(prompt);
   }, []);
 
   const handleFallbackConfirm = useCallback(async (values: { object_type: string; height_mm: string; width_mm: string; material: string; purpose: string; detail_level: string }) => {
@@ -276,43 +369,18 @@ export default function UniversalCreatorFlow({
       `Material: ${values.material}. Purpose: ${values.purpose}. Quality: ${values.detail_level}.`,
     ].filter(Boolean).join(" ");
 
-    try {
-      const res = await fetch("/api/invent", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          problem: problemText,
-          intake_session_id: interpretation?.session_id,
-          intake_mode: interpretation?.mode ?? "parametric_part",
-          intake_family_candidate: interpretation?.family_candidate,
-          intake_dimensions: { ...interpretation?.extracted_dimensions, ...dims },
-        }),
-      });
-
-      if (!res.ok) {
-        const data = await res.json();
-        if (data.upgrade_required) {
-          setError("Monthly limit reached. Please upgrade your plan to continue.");
-          setPhase("clarifying");
-          return;
-        }
-        throw new Error("Generation failed");
-      }
-
-      const data = await res.json();
-      setJobId(data.job_id);
-      setPhase("done");
-      setTimeout(() => router.push(`/jobs/${data.job_id}`), 1500);
-    } catch {
-      setError("Generation failed. Please try again.");
-      setPhase("clarifying");
-      setShowFallbackForm(true);
-    }
-  }, [interpretation, router]);
+    await doGenerate(
+      problemText,
+      interpretation?.family_candidate ?? undefined,
+      { ...interpretation?.extracted_dimensions, ...dims },
+      interpretation?.session_id,
+      interpretation?.mode ?? "parametric_part",
+    );
+  }, [interpretation, doGenerate]);
 
   return (
     <div className="space-y-4">
-      {/* Locked spec banner — shown when a gallery item was selected */}
+      {/* Locked spec banner */}
       {initialLockedSpec && phase !== "idle" && (
         <div className="rounded-lg bg-green-900/20 border border-green-700/50 px-4 py-3 text-sm text-green-300 flex items-center gap-2">
           <span>✓</span>
@@ -323,7 +391,7 @@ export default function UniversalCreatorFlow({
         </div>
       )}
 
-      {/* Input composer — always visible in idle phase (not shown for locked spec) */}
+      {/* Input composer — idle and interpreting phases */}
       {(phase === "idle" || phase === "interpreting") && !initialLockedSpec && (
         <UniversalInputComposer
           onSubmit={handleComposerSubmit}
@@ -331,7 +399,7 @@ export default function UniversalCreatorFlow({
           examplePrompts={examplePrompts}
           placeholder="Describe what you want to create, upload a photo or sketch, or use your voice…"
           submitLabel="Interpret →"
-          initialValue={initialPrompt}
+          initialValue={prefilledPrompt}
         />
       )}
 
@@ -342,7 +410,7 @@ export default function UniversalCreatorFlow({
         </div>
       )}
 
-      {/* Truth Gate rejection — honest unsupported state */}
+      {/* Truth Gate rejection */}
       {phase === "unsupported" && truthGateRejection && (
         <UnsupportedRequestPanel
           verdict={truthGateRejection.verdict}
@@ -359,7 +427,31 @@ export default function UniversalCreatorFlow({
         />
       )}
 
-      {/* Live Print Plan — shown during and after interpretation */}
+      {/* AI Router: soft_match state — "Best Match Found" */}
+      {phase === "soft_match" && softMatchState && (
+        <SoftMatchPanel
+          family={softMatchState.family}
+          parameters={softMatchState.parameters}
+          explanation={softMatchState.explanation}
+          confidence={softMatchState.confidence}
+          missing_dims={softMatchState.missing_dims}
+          clarification_question={softMatchState.clarification_question}
+          onGenerate={handleSoftMatchGenerate}
+          onReset={handleReset}
+        />
+      )}
+
+      {/* AI Router: unsupported state — graceful dead-end */}
+      {phase === "ai_unsupported" && aiUnsupportedState && (
+        <AiUnsupportedPanel
+          explanation={aiUnsupportedState.explanation}
+          suggestions={aiUnsupportedState.suggestions}
+          onTryExample={handleTryExample}
+          onReset={handleReset}
+        />
+      )}
+
+      {/* Live Print Plan */}
       {(phase === "clarifying" || phase === "previewing") && interpretation && (
         <LivePrintPlan result={interpretation} isLoading={false} />
       )}
@@ -374,7 +466,7 @@ export default function UniversalCreatorFlow({
         />
       )}
 
-      {/* Fallback form — shown when LLM clarify fails twice */}
+      {/* Fallback form */}
       {phase === "clarifying" && showFallbackForm && (
         <ClarifyFallbackForm
           sessionId={interpretation?.session_id ?? ""}
