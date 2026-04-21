@@ -107,7 +107,7 @@ Available part families and their required parameters:
 - l_bracket: width (mm), height (mm), thickness (mm), flange_length (mm)
 - u_bracket: width (mm), height (mm), thickness (mm), depth (mm)
 - hole_plate: length (mm), width (mm), thickness (mm), hole_count, hole_diameter (mm)
-- cable_clip: cable_diameter (mm), thickness (mm), width (mm)
+- cable_clip: cable_od (mm), wall_thickness (mm), base_width (mm)
 - enclosure: length (mm), width (mm), height (mm), wall_thickness (mm)
 - flat_bracket: length (mm), width (mm), thickness (mm)
 - standoff_block: base_width (mm), height (mm), hole_diameter (mm)
@@ -139,11 +139,20 @@ Return ONLY valid JSON matching this schema (no markdown, no extra text):
 // ─────────────────────────────────────────────────────────────────────────────
 
 function classifyOutcome(llm: RouterLlmResponse): RouterOutcome {
+  // If no valid family was identified, this is unsupported
   if (!llm.family) return "unsupported";
+
   const hasMissingDims = llm.missing_dims && llm.missing_dims.length > 0;
+
+  // RULE: If a valid family is identified, the minimum outcome is soft_match.
+  // The number of missing dims does NOT determine whether soft_match shows —
+  // it only determines whether the Generate button is enabled.
+  // Only return direct_match when: confidence ≥ 75 AND no missing dims.
   if (llm.confidence >= 75 && !hasMissingDims) return "direct_match";
-  if (llm.confidence >= 50 || hasMissingDims) return "soft_match";
-  return "unsupported";
+
+  // Everything else with a valid family → soft_match (show editable dims panel)
+  // This includes: confidence < 50, any number of missing dims, etc.
+  return "soft_match";
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
