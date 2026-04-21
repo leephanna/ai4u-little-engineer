@@ -171,6 +171,11 @@ export async function GET(req: NextRequest) {
         ],
         job_detail_page: "apps/web/app/jobs/[id]/page.tsx",
       },
+      env_check: {
+        admin_bypass_key_set: !!process.env.ADMIN_BYPASS_KEY,
+        openai_key_set: !!process.env.OPENAI_API_KEY,
+        trigger_key_set: !!process.env.TRIGGER_SECRET_KEY,
+      },
     },
     {
       headers: {
