@@ -19,8 +19,9 @@ export default clerkMiddleware((auth, req) => {
   // Allow admin bypass key to skip Clerk auth on bypassable API routes
   if (isAdminBypassableRoute(req)) {
     const bypassKey = req.headers.get("x-admin-bypass-key");
-    const adminKey = process.env.ADMIN_BYPASS_KEY;
-    if (adminKey && bypassKey === adminKey) {
+    // Trim env var to handle trailing newlines or whitespace from Vercel env storage
+    const adminKey = process.env.ADMIN_BYPASS_KEY?.trim();
+    if (adminKey && bypassKey?.trim() === adminKey) {
       // Valid admin bypass — let the request through without Clerk auth
       return NextResponse.next();
     }

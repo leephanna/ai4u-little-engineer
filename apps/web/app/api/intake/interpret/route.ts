@@ -115,8 +115,9 @@ export async function POST(req: NextRequest) {
     // Allows owner to probe the live route without a Clerk session.
     // NEVER leaks secrets — only returns debug fields, not env vars.
     const probeKey = req.headers.get("x-admin-bypass-key");
-    const adminBypassKey = process.env.ADMIN_BYPASS_KEY;
-    const isOwnerProbe = adminBypassKey && probeKey === adminBypassKey;
+    // Trim env var to handle trailing newlines or whitespace from Vercel env storage
+    const adminBypassKey = process.env.ADMIN_BYPASS_KEY?.trim();
+    const isOwnerProbe = adminBypassKey && probeKey?.trim() === adminBypassKey;
 
     const user = await getAuthUser();
     if (!user && !isOwnerProbe) {

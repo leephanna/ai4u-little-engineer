@@ -137,8 +137,9 @@ export async function POST(request: NextRequest) {
 
     // ── Owner probe bypass (ADMIN_BYPASS_KEY header) ──────────────────────────
     const probeKey = request.headers.get("x-admin-bypass-key");
-    const adminBypassKey = process.env.ADMIN_BYPASS_KEY;
-    const isOwnerProbe = adminBypassKey && probeKey === adminBypassKey;
+    // Trim env var to handle trailing newlines or whitespace from Vercel env storage
+    const adminBypassKey = process.env.ADMIN_BYPASS_KEY?.trim();
+    const isOwnerProbe = adminBypassKey && probeKey?.trim() === adminBypassKey;
 
     // Auth check
     const user = await getAuthUser();

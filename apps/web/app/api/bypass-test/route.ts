@@ -7,8 +7,8 @@ import { NextRequest, NextResponse } from "next/server";
 
 export async function GET(request: NextRequest) {
   const probeKey = request.headers.get("x-admin-bypass-key");
-  const adminBypassKey = process.env.ADMIN_BYPASS_KEY;
-  const isOwnerProbe = adminBypassKey && probeKey === adminBypassKey;
+  const adminBypassKey = process.env.ADMIN_BYPASS_KEY?.trim();
+  const isOwnerProbe = adminBypassKey && probeKey?.trim() === adminBypassKey;
 
   return NextResponse.json({
     probe_key_received: probeKey
