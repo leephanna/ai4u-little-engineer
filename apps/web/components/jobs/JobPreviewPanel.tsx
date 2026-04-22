@@ -35,9 +35,14 @@ interface JobPreviewPanelProps {
   artifacts: Artifact[];
   spec: PartSpec | null;
   jobTitle: string;
+  /** Server-side signed URL for the STL artifact (1-hour expiry).
+   *  When provided, the viewer fetches directly from Supabase Storage
+   *  instead of going through the auth-gated /api/artifacts/[id]/download route.
+   */
+  stlSignedUrl?: string | null;
 }
 
-export function JobPreviewPanel({ artifacts, spec, jobTitle }: JobPreviewPanelProps) {
+export function JobPreviewPanel({ artifacts, spec, jobTitle, stlSignedUrl }: JobPreviewPanelProps) {
   const [viewerError, setViewerError] = useState(false);
   const [wireframe, setWireframe] = useState(false);
 
@@ -46,11 +51,13 @@ export function JobPreviewPanel({ artifacts, spec, jobTitle }: JobPreviewPanelPr
   const pngArtifact = artifacts.find((a) => a.kind === "png");
 
   if (stlArtifact && !viewerError) {
+    // Prefer the server-side signed URL (no auth needed) over the download route
+    const viewerUrl = stlSignedUrl ?? `/api/artifacts/${stlArtifact.id}/download`;
     return (
       <div className="space-y-3">
         <div className="rounded-xl overflow-hidden bg-steel-900 border border-steel-800">
           <StlViewer
-            url={`/api/artifacts/${stlArtifact.id}/download`}
+            url={viewerUrl}
             width={600}
             height={400}
             className="w-full"

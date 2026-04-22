@@ -141,6 +141,19 @@ export default async function JobDetailPage({ params }: PageProps) {
   const latestSpec = specs[0] ?? null;
   const latestRun = runs[0] ?? null;
 
+  // ── Bug 3 fix: generate a server-side signed URL for the STL artifact ───────
+  // The STL viewer is a client component that cannot use auth-gated routes.
+  // We generate a short-lived signed URL here (server component) and pass it
+  // directly as a prop so the viewer fetches from Supabase Storage directly.
+  const stlArtifactForSign = artifacts.find((a) => a.kind === "stl" && a.storage_path);
+  let stlSignedUrl: string | null = null;
+  if (stlArtifactForSign?.storage_path) {
+    const { data: signed } = await supabase.storage
+      .from("cad-artifacts")
+      .createSignedUrl(stlArtifactForSign.storage_path, 3600);
+    stlSignedUrl = signed?.signedUrl ?? null;
+  }
+
   const statusColor = JOB_STATUS_COLORS[job.status as keyof typeof JOB_STATUS_COLORS] ?? "bg-gray-100 text-gray-700";
   const statusLabel = JOB_STATUS_LABELS[job.status as keyof typeof JOB_STATUS_LABELS] ?? job.status.replace(/_/g, " ");
 
@@ -293,6 +306,7 @@ export default async function JobDetailPage({ params }: PageProps) {
               artifacts={artifacts}
               spec={latestSpec}
               jobTitle={job.title}
+              stlSignedUrl={stlSignedUrl}
             />
           </section>
         )}
