@@ -31,7 +31,7 @@
  *   standoff_block: base_width, height, hole_diameter
  *   adapter_bushing: outer_diameter, inner_diameter, length
  *   solid_block:    length, width, height
- *   simple_jig:     length, width, height
+ *   simple_jig:     length, width, thickness
  */
 import Link from "next/link";
 import BrandSignatureBlock from "@/components/BrandSignatureBlock";
@@ -120,11 +120,11 @@ const GALLERY_CARDS: GalleryCard[] = [
     id: "standoff-m3",
     emoji: "🗜️",
     name: "M3 PCB Standoff",
-    description: "Square-base standoff block, 15mm wide, 12mm tall, 3.2mm through-hole for M3 screws. Lifts PCBs off surfaces.",
+    description: "Square-base standoff block, 15mm wide, 20mm tall, 3.2mm through-hole for M3 screws. Lifts PCBs off surfaces.",
     lockedSpec: {
       family: "standoff_block",
-      parameters: { base_width: 15, height: 12, hole_diameter: 3.2 },
-      reasoning: "M3 standoff block 15mm base, 12mm tall, 3.2mm hole — locked gallery preset",
+      parameters: { base_width: 15, height: 20, hole_diameter: 3.2 },
+      reasoning: "M3 standoff block 15mm base, 20mm tall, 3.2mm hole — locked gallery preset",
       confidence: 0.97,
     },
     category: "precision",
@@ -226,11 +226,11 @@ const GALLERY_CARDS: GalleryCard[] = [
     id: "drill-jig",
     emoji: "🎯",
     name: "Drill Alignment Jig",
-    description: "Flat alignment fixture, 80×60×15mm. Use as a repeatable positioning guide for drilling or assembly operations.",
+    description: "Flat alignment fixture, 80×60mm, 15mm thick. Use as a repeatable positioning guide for drilling or assembly operations.",
     lockedSpec: {
       family: "simple_jig",
-      parameters: { length: 80, width: 60, height: 15 },
-      reasoning: "Drill alignment jig 80×60×15mm — locked gallery preset",
+      parameters: { length: 80, width: 60, thickness: 15 },
+      reasoning: "Drill alignment jig 80×60mm, 15mm thick — locked gallery preset",
       confidence: 0.95,
     },
     category: "showcase",
@@ -243,7 +243,7 @@ const GALLERY_CARDS: GalleryCard[] = [
     id: "flat-bracket-mount",
     emoji: "🪛",
     name: "Flat Mounting Bracket",
-    description: "Flat rectangular bracket, 120×30mm, 4mm thick. Attach to walls or panels with screws through the flat surface.",
+    description: "Flat rectangular bracket, 120×30mm, 4mm thick. Attach to walls or panels with screws.",
     lockedSpec: {
       family: "flat_bracket",
       parameters: { length: 120, width: 30, thickness: 4 },

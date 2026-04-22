@@ -13,9 +13,14 @@
  *   SOFT_MATCH    — confidence ≥ 50 OR missing_dims present → show editable dims
  *   UNSUPPORTED   — family === null → graceful dead-end with suggestions
  *
- * The router makes a single gpt-4.1-mini call with structured JSON output.
- * If the LLM call fails, the caller falls back to the existing INVENTION_SYSTEM_PROMPT
- * path (no regression).
+ * Web search:
+ *   When the input contains proper nouns, brand names, or product references,
+ *   a lightweight context lookup is performed BEFORE the main LLM call.
+ *   Search uses Serper API (SERPER_API_KEY) if available, otherwise falls back
+ *   to a knowledge-retrieval call using gpt-4.1-mini.
+ *   Search has a 2-second timeout and is always optional — failure is silent.
+ *   Search is NEVER triggered for inputs that already have explicit dimensions
+ *   (those are handled by the primitive normalizer before this module runs).
  */
 
 import OpenAI from "openai";
@@ -41,6 +46,8 @@ export interface AiRouterResult {
   missing_dims: string[];
   /** Targeted clarification question, or null */
   clarification_question: string | null;
+  /** Whether web search context was used */
+  used_web_search: boolean;
 }
 
 // Raw JSON schema the LLM must return
@@ -112,7 +119,7 @@ Available part families and their required parameters:
 - flat_bracket: length (mm), width (mm), thickness (mm)
 - standoff_block: base_width (mm), height (mm), hole_diameter (mm)
 - adapter_bushing: outer_diameter (mm), inner_diameter (mm), length (mm)
-- simple_jig: length (mm), width (mm), height (mm)
+- simple_jig: length (mm), width (mm), thickness (mm)
 - solid_block: length (mm), width (mm), height (mm)
 
 Rules:
@@ -126,6 +133,7 @@ Rules:
 5. Include a one-sentence human-readable explanation of your reasoning
 6. List any dimensions you could NOT infer from the input in missing_dims
 7. If you need one key piece of info to resolve ambiguity, put a targeted question in clarification_question
+8. When web search context is provided after the user's request, extract any physical dimensions (mm, cm, inches — convert to mm). Use those dimensions to fill in parameters. Prefer exact dimensions from the search context over generic defaults. Note in your explanation that you used reference dimensions from context.
 
 Return ONLY valid JSON matching this schema (no markdown, no extra text):
 {
@@ -136,6 +144,169 @@ Return ONLY valid JSON matching this schema (no markdown, no extra text):
   "missing_dims": string[],
   "clarification_question": string | null
 }`;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Web search detection
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Detect whether a user input would benefit from web search context.
+ *
+ * Returns true for inputs containing:
+ * - Proper nouns (brand names, product names, missions)
+ * - Known product/brand signals
+ * - Event or mission signals
+ *
+ * Returns false for inputs with explicit numeric dimensions — those are
+ * handled by the primitive normalizer before this module runs.
+ */
+export function needsWebSearch(input: string): boolean {
+  const inputLower = input.toLowerCase();
+
+  // If the input already has explicit mm/cm/inch dimensions, the normalizer
+  // would have caught it. But if we're here, it means the normalizer didn't
+  // match — so we still check for product references.
+
+  // Known product/brand signals
+  const productSignals = [
+    "raspberry pi",
+    "arduino",
+    "gopro",
+    "iphone",
+    "samsung",
+    "nasa",
+    "artemis",
+    "spacex",
+    "nozzle",
+    "hotend",
+    "esp32",
+    "esp8266",
+    "stm32",
+    "jetson",
+    "nvidia",
+    "nema",
+    "hero 12",
+    "hero12",
+    "pi zero",
+    "pi 4",
+    "pi 5",
+    "pico",
+  ];
+
+  // Event / mission signals
+  const eventSignals = [
+    "mission",
+    "launch",
+    "rocket",
+    "satellite",
+    "probe",
+    "lander",
+    "rover",
+  ];
+
+  const hasProductSignal = productSignals.some((s) => inputLower.includes(s));
+  const hasEventSignal = eventSignals.some((s) => inputLower.includes(s));
+
+  // Proper noun detection: capitalized word(s) not at start of sentence
+  // e.g. "Mount for Raspberry Pi 5" → "Raspberry", "Pi"
+  // Strip leading word (likely capitalized as first word of sentence)
+  const withoutFirstWord = input.replace(/^\S+\s*/, "");
+  const hasProperNoun = /\b[A-Z][a-z]{1,}(?:\s+[A-Z0-9][a-z0-9]*)*\b/.test(
+    withoutFirstWord
+  );
+
+  return hasProductSignal || hasEventSignal || hasProperNoun;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Web search helper
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Fetch a 2-3 sentence context summary for the given query.
+ *
+ * Strategy:
+ * 1. If SERPER_API_KEY is set, use Serper (Google Search API)
+ * 2. Otherwise, use gpt-4.1-mini as a knowledge retrieval tool
+ *    (it knows product dimensions from training data)
+ *
+ * Always has a 2-second timeout. Returns empty string on any failure.
+ */
+async function searchForContext(
+  query: string,
+  openai: OpenAI
+): Promise<string> {
+  const serperKey = process.env.SERPER_API_KEY;
+
+  try {
+    if (serperKey) {
+      // Use Serper (Google Search) for real-time results
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 2000);
+
+      try {
+        const response = await fetch("https://google.serper.dev/search", {
+          method: "POST",
+          headers: {
+            "X-API-KEY": serperKey,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ q: query, num: 3 }),
+          signal: controller.signal,
+        });
+        clearTimeout(timeout);
+
+        if (!response.ok) return "";
+
+        const data = (await response.json()) as {
+          organic?: Array<{ snippet?: string }>;
+        };
+        const snippets = data.organic
+          ?.slice(0, 3)
+          .map((r) => r.snippet)
+          .filter(Boolean)
+          .join(" ");
+
+        return snippets ?? "";
+      } finally {
+        clearTimeout(timeout);
+      }
+    } else {
+      // Fallback: use gpt-4.1-mini as a knowledge retrieval tool
+      // This works well for well-known products (RPi, Arduino, GoPro, etc.)
+      type ChatResult = Awaited<ReturnType<typeof openai.chat.completions.create>>;
+      const completion = await Promise.race<ChatResult>([
+        openai.chat.completions.create({
+          model: "gpt-4.1-mini",
+          messages: [
+            {
+              role: "system",
+              content:
+                "You are a product dimensions lookup assistant. Answer ONLY with physical dimensions in mm (length × width × height or diameter). Be concise — 1-2 sentences max. If you don't know the exact dimensions, say so briefly.",
+            },
+            {
+              role: "user",
+              content: query,
+            },
+          ],
+          max_tokens: 80,
+          temperature: 0,
+          stream: false,
+        }),
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error("search timeout")), 2000)
+        ),
+      ]);
+
+      return (completion as { choices: Array<{ message: { content: string | null } }> })
+        .choices[0]?.message?.content ?? "";
+    }
+  } catch (err) {
+    // Silent failure — search is always optional
+    console.warn("[ai-router] searchForContext failed:", (err as Error).message);
+    return "";
+  }
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Outcome classifier
@@ -175,11 +346,44 @@ export async function runAiRouter(
   openai: OpenAI
 ): Promise<AiRouterResult | null> {
   try {
+    let contextAddendum = "";
+    let usedWebSearch = false;
+
+    // ── Web search context injection ─────────────────────────────────────────
+    // Only triggered for inputs with proper nouns, brand names, or product refs.
+    // Explicit-dimension inputs are handled by the normalizer before this runs.
+    if (needsWebSearch(userInput)) {
+      try {
+        const searchResult = await searchForContext(
+          `${userInput} dimensions size mm physical specifications`,
+          openai
+        );
+        if (searchResult && searchResult.trim().length > 10) {
+          contextAddendum = `\n\nWeb search context for this request:\n${searchResult}\n\nUse this context to infer dimensions if the user didn't specify them explicitly.`;
+          usedWebSearch = true;
+          console.log(
+            `[ai-router] Web search used for: "${userInput.slice(0, 60)}"`
+          );
+        }
+      } catch (e) {
+        console.warn(
+          "[ai-router] Web search failed, proceeding without context:",
+          e
+        );
+      }
+    }
+
+    // ── Main LLM routing call ────────────────────────────────────────────────
+    const userMessage = (userInput.trim().slice(0, 800) + contextAddendum).slice(
+      0,
+      1200
+    );
+
     const completion = await openai.chat.completions.create({
       model: "gpt-4.1-mini",
       messages: [
         { role: "system", content: ROUTER_SYSTEM_PROMPT },
-        { role: "user", content: userInput.trim().slice(0, 800) },
+        { role: "user", content: userMessage },
       ],
       response_format: { type: "json_object" },
       temperature: 0.2,
@@ -204,7 +408,9 @@ export async function runAiRouter(
     if (llm.family !== null) {
       const isValid = (VALID_FAMILIES as readonly string[]).includes(llm.family);
       if (!isValid) {
-        console.warn(`[ai-router] LLM returned invalid family: "${llm.family}" — setting to null`);
+        console.warn(
+          `[ai-router] LLM returned invalid family: "${llm.family}" — setting to null`
+        );
         llm.family = null;
         llm.confidence = 0;
         llm.missing_dims = [];
@@ -221,6 +427,7 @@ export async function runAiRouter(
       explanation: llm.explanation,
       missing_dims: llm.missing_dims,
       clarification_question: llm.clarification_question ?? null,
+      used_web_search: usedWebSearch,
     };
   } catch (err) {
     console.error("[ai-router] LLM call failed:", err);

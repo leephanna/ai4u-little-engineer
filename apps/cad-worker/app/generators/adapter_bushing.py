@@ -33,7 +33,8 @@ def validate_params(dims: Dict[str, Any]) -> list:
     errors = []
     od = dims.get("outer_diameter")
     id_ = dims.get("inner_diameter")
-    height = dims.get("height")
+    # Accept 'length' as canonical alias for 'height' (capability registry uses 'length')
+    height = dims.get("height") if dims.get("height") is not None else dims.get("length")
     flange_d = dims.get("flange_diameter")
 
     if od is None:
@@ -41,7 +42,7 @@ def validate_params(dims: Dict[str, Any]) -> list:
     if id_ is None:
         errors.append("Missing required dimension: inner_diameter")
     if height is None:
-        errors.append("Missing required dimension: height")
+        errors.append("Missing required dimension: height (or length)")
 
     if od is not None and od < MIN_OD_MM:
         errors.append(f"outer_diameter {od}mm is below minimum {MIN_OD_MM}mm")
@@ -80,7 +81,8 @@ def generate(dims: Dict[str, Any], variant_type: str = "requested") -> Any:
 
     od = float(dims["outer_diameter"])
     id_ = float(dims["inner_diameter"])
-    height = float(dims["height"])
+    # Accept 'length' as canonical alias for 'height'
+    height = float(dims["height"]) if dims.get("height") is not None else float(dims["length"])
     flange_d = dims.get("flange_diameter")
     flange_h = float(dims.get("flange_height", 2.0))
     chamfer_bore = float(dims.get("chamfer_bore", 0.3))
@@ -147,7 +149,7 @@ def get_normalized_params(dims: Dict[str, Any], variant_type: str = "requested")
     return {
         "outer_diameter_mm": od,
         "inner_diameter_mm": id_,
-        "height_mm": float(dims["height"]),
+        "height_mm": float(dims["height"]) if dims.get("height") is not None else float(dims["length"]),
         "wall_thickness_mm": (od - id_) / 2,
         "has_flange": dims.get("flange_diameter") is not None,
         "flange_diameter_mm": dims.get("flange_diameter"),

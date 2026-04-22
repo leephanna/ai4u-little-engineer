@@ -219,6 +219,7 @@ export async function POST(request: NextRequest) {
     let aiRouterMissingDims: string[] = [];
     let aiRouterClarificationQuestion: string | null = null;
     let aiRouterConfidence: number | null = null;
+    let aiRouterUsedWebSearch = false;
 
     if (primitiveNorm) {
       // ── Fast-path A: primitive normalizer matched ─────────────────────────
@@ -250,6 +251,7 @@ export async function POST(request: NextRequest) {
         aiRouterMissingDims = routerResult.missing_dims;
         aiRouterClarificationQuestion = routerResult.clarification_question;
         aiRouterConfidence = routerResult.confidence;
+        aiRouterUsedWebSearch = routerResult.used_web_search ?? false;
 
         // ── soft_match: return early — client shows editable dims UI ─────────
         if (routerResult.outcome === "soft_match") {
@@ -262,6 +264,7 @@ export async function POST(request: NextRequest) {
                 confidence: Math.round(routerResult.confidence),
                 ai_explanation: routerResult.explanation,
                 user_accepted: false,
+                used_web_search: routerResult.used_web_search ?? false,
               });
             } catch { /* non-fatal */ }
           })();
@@ -288,6 +291,7 @@ export async function POST(request: NextRequest) {
                 confidence: Math.round(routerResult.confidence),
                 ai_explanation: routerResult.explanation,
                 user_accepted: false,
+                used_web_search: routerResult.used_web_search ?? false,
               });
             } catch { /* non-fatal */ }
           })();
@@ -595,6 +599,7 @@ export async function POST(request: NextRequest) {
           ai_explanation: aiRouterExplanation ?? inventionResult.reasoning,
           user_accepted: true,
           final_family: inventionResult.family,
+          used_web_search: aiRouterUsedWebSearch,
         });
       } catch { /* non-fatal — never block main flow */ }
     })();
