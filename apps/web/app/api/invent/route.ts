@@ -14,7 +14,8 @@
  *   5. AI Router (NEW): gpt-4.1-mini maps input to best family
  *      → direct_match (≥75% confidence, no missing dims) → create job
  *      → soft_match (≥50% OR missing dims) → return { status: "soft_match" }
- *      → unsupported (null family) → return { status: "unsupported" }
+ *      → custom_generate (no parametric family fits) → call /generate-custom on CAD worker
+ *      → unsupported (null family, not describable) → return { status: "unsupported" }
  *   6. Truth Gate validation
  *   7. Create session → job → part_spec → trigger CAD pipeline
  *   8. Fire-and-forget router_log insert
@@ -139,6 +140,18 @@ const EXAMPLE_PROMPTS = [
 ];
 
 // ─────────────────────────────────────────────────────────────────────────────
+// CAD Worker URL helper
+// ─────────────────────────────────────────────────────────────────────────────
+
+function getCadWorkerUrl(): string {
+  return (
+    process.env.CAD_WORKER_URL ??
+    process.env.NEXT_PUBLIC_CAD_WORKER_URL ??
+    "https://ai4u-cad-worker.onrender.com"
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Main handler
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -173,17 +186,30 @@ export async function POST(request: NextRequest) {
     //   2. New shape: { text: string, intake_family_candidate?: string,
     //                   intake_dimensions?: Record<string, number> }
     //                — from UniversalCreatorFlow after interpretation
+    //   3. Custom shape: { text: string, custom_generate: true,
+    //                      custom_description: string,
+    //                      previous_code?: string,
+    //                      refinement_instruction?: string }
+    //                — from UniversalCreatorFlow custom_preview refinement
     const body = await request.json();
     const {
       problem,
       text,
       intake_family_candidate,
       intake_dimensions,
+      custom_generate: isCustomGenerate,
+      custom_description,
+      previous_code,
+      refinement_instruction,
     } = body as {
       problem?: string;
       text?: string;
       intake_family_candidate?: string;
       intake_dimensions?: Record<string, number>;
+      custom_generate?: boolean;
+      custom_description?: string;
+      previous_code?: string;
+      refinement_instruction?: string;
     };
 
     // Normalise: accept either `problem` or `text` as the description
@@ -196,6 +222,19 @@ export async function POST(request: NextRequest) {
     }
 
     const problemText = rawDescription.trim().slice(0, 1000); // cap at 1000 chars
+
+    // ── Custom generate fast-path: skip all routing, go directly to CAD worker ─
+    // This handles both initial custom_generate requests AND refinement loops.
+    if (isCustomGenerate === true && custom_description) {
+      return await handleCustomGenerate({
+        effectiveUser,
+        serviceSupabase,
+        problemText,
+        customDescription: custom_description,
+        previousCode: previous_code,
+        refinementInstruction: refinement_instruction,
+      });
+    }
 
     // ── Step 1: Fast-path A — primitive shape normalizer ─────────────────────
     // Detects "cube", "cylinder", "spacer", "standoff" etc. BEFORE any LLM call.
@@ -240,7 +279,6 @@ export async function POST(request: NextRequest) {
         confidence: 0.9,
         rejection_reason: null,
       };
-      aiRouterOutcome = "intake_fast_path";
     } else {
       // ── Step 3: AI Router — LLM-powered routing ───────────────────────────
       const routerResult = await runAiRouter(problemText, openai);
@@ -277,6 +315,32 @@ export async function POST(request: NextRequest) {
             confidence: routerResult.confidence,
             missing_dims: routerResult.missing_dims,
             clarification_question: routerResult.clarification_question,
+          });
+        }
+
+        // ── custom_generate: call CAD worker /generate-custom ─────────────────
+        if (routerResult.outcome === "custom_generate") {
+          // Fire-and-forget router log
+          void (async () => {
+            try {
+              await serviceSupabase.from("router_log").insert({
+                raw_input: problemText,
+                routed_family: null,
+                confidence: Math.round(routerResult.confidence),
+                ai_explanation: `custom_generate: ${routerResult.explanation}`,
+                user_accepted: false,
+                used_web_search: routerResult.used_web_search ?? false,
+              });
+            } catch { /* non-fatal */ }
+          })();
+
+          return await handleCustomGenerate({
+            effectiveUser,
+            serviceSupabase,
+            problemText,
+            customDescription: routerResult.custom_description ?? problemText,
+            previousCode: undefined,
+            refinementInstruction: undefined,
           });
         }
 
@@ -522,7 +586,7 @@ export async function POST(request: NextRequest) {
         generator_name: inventionResult.family,
         generator_version: "1.0.0",
         status: "queued",
-        normalized_params_json: {},
+        normalized_params_json: inventionResult.parameters,
         validation_report_json: {},
       })
       .select()
@@ -627,4 +691,152 @@ export async function POST(request: NextRequest) {
     console.error("Invent endpoint error:", err);
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Custom generate handler
+// ─────────────────────────────────────────────────────────────────────────────
+
+interface CustomGenerateHandlerArgs {
+  effectiveUser: { id: string; email: string | null };
+  serviceSupabase: ReturnType<typeof createServiceClient>;
+  problemText: string;
+  customDescription: string;
+  previousCode?: string;
+  refinementInstruction?: string;
+}
+
+async function handleCustomGenerate({
+  effectiveUser,
+  serviceSupabase,
+  problemText,
+  customDescription,
+  previousCode,
+  refinementInstruction,
+}: CustomGenerateHandlerArgs): Promise<NextResponse> {
+  // Create a job record for tracking
+  const { data: session, error: sessionError } = await serviceSupabase
+    .from("sessions")
+    .insert({ clerk_user_id: effectiveUser.id, started_at: new Date().toISOString() })
+    .select("id")
+    .single();
+  if (sessionError || !session) {
+    return NextResponse.json(
+      { error: "Failed to create session for custom generate", detail: sessionError?.message },
+      { status: 500 }
+    );
+  }
+
+  const { data: job, error: jobError } = await serviceSupabase
+    .from("jobs")
+    .insert({
+      clerk_user_id: effectiveUser.id,
+      session_id: session.id,
+      status: "generating",
+      title: `Custom: ${problemText.slice(0, 60)}`,
+      requested_family: "custom",
+      selected_family: "custom",
+      capability_id: "custom_v1",
+      truth_label: "CUSTOM_GENERATE",
+      truth_result: { verdict: "CUSTOM_GENERATE", reason: "LLM CadQuery generation" },
+      is_demo_preset: false,
+    })
+    .select("id")
+    .single();
+  if (jobError || !job) {
+    return NextResponse.json(
+      { error: "Failed to create job for custom generate", detail: jobError?.message },
+      { status: 500 }
+    );
+  }
+
+  // Call the CAD worker /generate-custom endpoint
+  const cadWorkerUrl = getCadWorkerUrl();
+  let cadWorkerResult: {
+    status: string;
+    storage_path?: string;
+    generated_code?: string;
+    plain_english_summary?: string;
+    error?: string;
+    cad_run_id?: string;
+    attempts?: number;
+    duration_ms?: number;
+  };
+
+  try {
+    const cadResponse = await fetch(`${cadWorkerUrl}/generate-custom`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        description: customDescription,
+        job_id: job.id,
+        previous_code: previousCode ?? null,
+        refinement_instruction: refinementInstruction ?? null,
+      }),
+      // 120s timeout for LLM + CadQuery generation
+      signal: AbortSignal.timeout(120_000),
+    });
+
+    if (!cadResponse.ok) {
+      const errText = await cadResponse.text().catch(() => "unknown error");
+      throw new Error(`CAD worker returned ${cadResponse.status}: ${errText.slice(0, 200)}`);
+    }
+
+    cadWorkerResult = await cadResponse.json() as typeof cadWorkerResult;
+  } catch (err) {
+    console.error("[invent] custom generate CAD worker call failed:", err);
+    // Update job to failed
+    await serviceSupabase
+      .from("jobs")
+      .update({ status: "failed" })
+      .eq("id", job.id);
+
+    return NextResponse.json({
+      status: "custom_generate_failed",
+      job_id: job.id,
+      error: `CAD worker unavailable: ${(err as Error).message}`,
+    });
+  }
+
+  if (cadWorkerResult.status !== "success") {
+    await serviceSupabase
+      .from("jobs")
+      .update({ status: "failed" })
+      .eq("id", job.id);
+
+    return NextResponse.json({
+      status: "custom_generate_failed",
+      job_id: job.id,
+      error: cadWorkerResult.error ?? "CAD generation failed",
+    });
+  }
+
+  // Record the artifact
+  if (cadWorkerResult.storage_path) {
+    await serviceSupabase.from("artifacts").insert({
+      job_id: job.id,
+      cad_run_id: cadWorkerResult.cad_run_id ?? crypto.randomUUID(),
+      kind: "stl",
+      storage_path: cadWorkerResult.storage_path,
+      mime_type: "model/stl",
+      file_size_bytes: 0,
+    }).then(() => {/* non-fatal */}, () => {/* non-fatal */});
+  }
+
+  // Update job to done
+  await serviceSupabase
+    .from("jobs")
+    .update({ status: "done" })
+    .eq("id", job.id);
+
+  return NextResponse.json({
+    status: "custom_generate_ready",
+    job_id: job.id,
+    storage_path: cadWorkerResult.storage_path,
+    generated_code: cadWorkerResult.generated_code,
+    plain_english_summary: cadWorkerResult.plain_english_summary,
+    cad_run_id: cadWorkerResult.cad_run_id,
+    attempts: cadWorkerResult.attempts,
+    duration_ms: cadWorkerResult.duration_ms,
+  });
 }

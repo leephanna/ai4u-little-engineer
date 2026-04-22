@@ -43,6 +43,10 @@ interface LockedSpec {
   parameters: Record<string, number>;
   reasoning: string;
   confidence: number;
+  /** If true, skip parametric routing and call /generate-custom on the CAD worker */
+  custom_generate?: boolean;
+  /** Human-readable description passed to the LLM CadQuery generator */
+  custom_description?: string;
 }
 
 interface GalleryCard {
@@ -274,6 +278,28 @@ const GALLERY_CARDS: GalleryCard[] = [
     trustTier: "verified",
   },
 
+  // ── Artemis II — Custom Shape Demo ─────────────────────────────────────────
+  {
+    id: "artemis-ii-nozzle",
+    emoji: "🚀",
+    name: "Artemis II Nozzle Replica",
+    description: "A parametric replica of a rocket engine bell nozzle — 80mm tall, 60mm exit diameter, 20mm throat, 2mm wall. Demonstrates AI4U custom CadQuery generation for organic shapes beyond the standard 10 families.",
+    lockedSpec: {
+      family: "custom",
+      parameters: {},
+      reasoning: "Custom CadQuery generation: rocket nozzle bell shape",
+      confidence: 0.9,
+      custom_generate: true,
+      custom_description:
+        "A rocket engine bell nozzle: 80mm tall, 60mm exit diameter, 20mm throat diameter, 2mm wall thickness. Smooth parabolic bell curve profile. Hollow interior. Printable without supports (oriented apex-up).",
+    },
+    category: "showcase",
+    tags: ["rocket", "nozzle", "custom", "Artemis II"],
+    difficulty: "advanced",
+    printTime: "2h 30min",
+    trustTier: "verified",
+  },
+
   // ── Gift & Decor (4 items) ───────────────────────────────────────────────────
   {
     id: "keychain-tag",
@@ -394,6 +420,10 @@ const TRUST_TIER_LABELS: Record<string, string> = {
 /** Build the href for a gallery card's "Make This" button */
 function buildMakeHref(card: GalleryCard): string {
   const encoded = btoa(unescape(encodeURIComponent(JSON.stringify(card.lockedSpec))));
+  // Custom-generate items use ?q= so UniversalCreatorFlow routes via AI router
+  if (card.lockedSpec.custom_generate && card.lockedSpec.custom_description) {
+    return `/invent?q=${encodeURIComponent(card.lockedSpec.custom_description)}`;
+  }
   return `/invent?spec=${encodeURIComponent(encoded)}`;
 }
 

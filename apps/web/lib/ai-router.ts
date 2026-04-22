@@ -9,9 +9,10 @@
  * first and is never replaced by this module.
  *
  * Router outcomes:
- *   DIRECT_MATCH  — confidence ≥ 75 AND no missing_dims → create job immediately
- *   SOFT_MATCH    — confidence ≥ 50 OR missing_dims present → show editable dims
- *   UNSUPPORTED   — family === null → graceful dead-end with suggestions
+ *   DIRECT_MATCH     — confidence ≥ 75 AND no missing_dims → create job immediately
+ *   SOFT_MATCH       — confidence ≥ 50 OR missing_dims present → show editable dims
+ *   CUSTOM_GENERATE  — family === null but shape is describable → LLM CadQuery generation
+ *   UNSUPPORTED      — family === null AND shape is not describable → graceful dead-end
  *
  * Web search:
  *   When the input contains proper nouns, brand names, or product references,
@@ -29,12 +30,16 @@ import OpenAI from "openai";
 // Types
 // ─────────────────────────────────────────────────────────────────────────────
 
-export type RouterOutcome = "direct_match" | "soft_match" | "unsupported";
+export type RouterOutcome =
+  | "direct_match"
+  | "soft_match"
+  | "custom_generate"
+  | "unsupported";
 
 export interface AiRouterResult {
   /** Outcome classification */
   outcome: RouterOutcome;
-  /** Part family, or null for unsupported */
+  /** Part family, or null for unsupported/custom_generate */
   family: string | null;
   /** Inferred or defaulted dimensions */
   parameters: Record<string, number>;
@@ -48,6 +53,11 @@ export interface AiRouterResult {
   clarification_question: string | null;
   /** Whether web search context was used */
   used_web_search: boolean;
+  /**
+   * For custom_generate: the cleaned-up description to send to the CAD worker.
+   * Undefined for all other outcomes.
+   */
+  custom_description?: string;
 }
 
 // Raw JSON schema the LLM must return
@@ -58,6 +68,10 @@ interface RouterLlmResponse {
   explanation: string;
   missing_dims: string[];
   clarification_question: string | null;
+  /** New field: set to true when the LLM decides custom_generate is appropriate */
+  use_custom_generate?: boolean;
+  /** New field: cleaned-up description for the custom generator */
+  custom_description?: string;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -78,7 +92,7 @@ export const VALID_FAMILIES = [
   "solid_block",
 ] as const;
 
-export type ValidFamily = typeof VALID_FAMILIES[number];
+export type ValidFamily = (typeof VALID_FAMILIES)[number];
 
 // ─────────────────────────────────────────────────────────────────────────────
 // System prompt
@@ -122,9 +136,33 @@ Available part families and their required parameters:
 - simple_jig: length (mm), width (mm), thickness (mm)
 - solid_block: length (mm), width (mm), height (mm)
 
+CUSTOM GENERATE option:
+When the user requests a shape that:
+- Cannot be reasonably mapped to ANY of the 11 families above, AND
+- Is a describable physical object (not a living creature, not a concept, not software), AND
+- Could be 3D printed (e.g., organic shapes, complex mechanical parts, artistic objects, custom brackets with unusual geometry, multi-feature parts)
+Then set: "family": null, "use_custom_generate": true, "custom_description": "<cleaned up description for CadQuery>"
+
+Examples that should use custom_generate:
+- "design a turbine blade" → custom_generate
+- "create a phone stand with cable routing" → custom_generate
+- "make an octagonal mounting plate with chamfered edges" → custom_generate
+- "design a gear with 20 teeth" → custom_generate
+- "create a hook for hanging tools" → custom_generate
+
+Examples that should NOT use custom_generate (use a parametric family instead):
+- "make a spacer 20mm wide" → spacer
+- "I need a box for my Arduino" → enclosure
+- "cable clip for 5mm wire" → cable_clip
+
+Examples that are truly unsupported (family: null, use_custom_generate: false):
+- "design a human face" → unsupported (organic/biological)
+- "create a working motor" → unsupported (functional mechanism, not printable)
+- "make a cat" → unsupported (living creature)
+
 Rules:
 1. Always pick the CLOSEST family from the list above, even for unusual requests (e.g. "rocket" → "spacer" or "standoff_block")
-2. For organic/impossible shapes (car engine, human face, living creature, animal), return family: null with a helpful suggestion
+2. Only set use_custom_generate: true when the shape genuinely cannot be represented by any parametric family
 3. Infer dimensions from context clues. If none given, use sensible defaults for the part type (e.g. spacer default: outer_diameter=20, inner_diameter=5, length=10)
    EXCEPTION: For cable_clip, NEVER default wall_thickness or base_width — always add them to missing_dims if not explicitly stated.
    EXCEPTION: For enclosure, NEVER default wall_thickness — always add it to missing_dims if not explicitly stated.
@@ -142,7 +180,9 @@ Return ONLY valid JSON matching this schema (no markdown, no extra text):
   "confidence": number,
   "explanation": string,
   "missing_dims": string[],
-  "clarification_question": string | null
+  "clarification_question": string | null,
+  "use_custom_generate": boolean,
+  "custom_description": string | null
 }`;
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -238,6 +278,10 @@ async function searchForContext(
 ): Promise<string> {
   const serperKey = process.env.SERPER_API_KEY;
 
+  type ChatResult = Awaited<
+    ReturnType<typeof openai.chat.completions.create>
+  >;
+
   try {
     if (serperKey) {
       // Use Serper (Google Search) for real-time results
@@ -274,7 +318,6 @@ async function searchForContext(
     } else {
       // Fallback: use gpt-4.1-mini as a knowledge retrieval tool
       // This works well for well-known products (RPi, Arduino, GoPro, etc.)
-      type ChatResult = Awaited<ReturnType<typeof openai.chat.completions.create>>;
       const completion = await Promise.race<ChatResult>([
         openai.chat.completions.create({
           model: "gpt-4.1-mini",
@@ -298,8 +341,13 @@ async function searchForContext(
         ),
       ]);
 
-      return (completion as { choices: Array<{ message: { content: string | null } }> })
-        .choices[0]?.message?.content ?? "";
+      return (
+        (
+          completion as {
+            choices: Array<{ message: { content: string | null } }>;
+          }
+        ).choices[0]?.message?.content ?? ""
+      );
     }
   } catch (err) {
     // Silent failure — search is always optional
@@ -313,8 +361,11 @@ async function searchForContext(
 // ─────────────────────────────────────────────────────────────────────────────
 
 function classifyOutcome(llm: RouterLlmResponse): RouterOutcome {
-  // If no valid family was identified, this is unsupported
-  if (!llm.family) return "unsupported";
+  // If no valid family was identified, check for custom_generate
+  if (!llm.family) {
+    if (llm.use_custom_generate === true) return "custom_generate";
+    return "unsupported";
+  }
 
   const hasMissingDims = llm.missing_dims && llm.missing_dims.length > 0;
 
@@ -414,10 +465,23 @@ export async function runAiRouter(
         llm.family = null;
         llm.confidence = 0;
         llm.missing_dims = [];
+        // If the LLM returned an invalid family but didn't flag custom_generate,
+        // check if the description sounds like a describable physical object.
+        // Default to custom_generate for safety (better than dead-end unsupported).
+        if (!llm.use_custom_generate) {
+          llm.use_custom_generate = true;
+          llm.custom_description = userInput.trim();
+        }
       }
     }
 
     const outcome = classifyOutcome(llm);
+
+    // Build the custom_description for custom_generate outcomes
+    const customDescription =
+      outcome === "custom_generate"
+        ? (llm.custom_description?.trim() || userInput.trim())
+        : undefined;
 
     return {
       outcome,
@@ -428,6 +492,7 @@ export async function runAiRouter(
       missing_dims: llm.missing_dims,
       clarification_question: llm.clarification_question ?? null,
       used_web_search: usedWebSearch,
+      custom_description: customDescription,
     };
   } catch (err) {
     console.error("[ai-router] LLM call failed:", err);

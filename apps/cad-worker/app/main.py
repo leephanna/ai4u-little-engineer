@@ -16,6 +16,7 @@ from app.api.validate import router as validate_router
 from app.api.export import router as export_router
 from app.api.artifacts import router as artifacts_router
 from app.api.vpl import router as vpl_router
+from app.api.generate_custom import router as generate_custom_router
 
 # Configure logging
 logging.basicConfig(
@@ -78,6 +79,7 @@ app.include_router(validate_router, prefix="/validate", tags=["validate"])
 app.include_router(export_router, prefix="/export", tags=["export"])
 app.include_router(artifacts_router, prefix="/artifacts", tags=["artifacts"])
 app.include_router(vpl_router, tags=["vpl"])
+app.include_router(generate_custom_router, prefix="/generate-custom", tags=["generate-custom"])
 
 
 @app.get("/health", tags=["health"])

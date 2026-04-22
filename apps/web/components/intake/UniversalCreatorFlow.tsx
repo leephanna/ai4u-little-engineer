@@ -1,4 +1,3 @@
-"use client";
 
 /**
  * UniversalCreatorFlow
@@ -7,21 +6,23 @@
  *
  * State machine:
  *   idle → routing (calls /api/invent directly)
- *        ↘ soft_match    → SoftMatchPanel (editable dims + optional inline question)
- *        ↘ ai_unsupported → AiUnsupportedPanel (graceful dead-end)
- *        ↘ generating    → (job created by direct_match or SoftMatchPanel confirm)
- *        ↘ done          → redirect to /jobs/[id]
- *        ↘ clarifying    → ClarificationChat (fallback: no family identified)
- *        ↘ previewing    → VisualPreviewPanel (fallback: interpret-based flow)
- *        ↘ unsupported   → UnsupportedRequestPanel (Truth Gate rejection)
+ *        ↘ soft_match      → SoftMatchPanel (editable dims + optional inline question)
+ *        ↘ ai_unsupported  → AiUnsupportedPanel (graceful dead-end)
+ *        ↘ custom_preview  → CustomPreviewPanel (LLM CadQuery result + refinement loop)
+ *        ↘ generating      → (job created by direct_match or SoftMatchPanel confirm)
+ *        ↘ done            → redirect to /jobs/[id]
+ *        ↘ clarifying      → ClarificationChat (fallback: no family identified)
+ *        ↘ previewing      → VisualPreviewPanel (fallback: interpret-based flow)
+ *        ↘ unsupported     → UnsupportedRequestPanel (Truth Gate rejection)
  *
  * IMPORTANT: The primary path is now:
  *   1. User submits text → POST /api/invent
  *   2. /api/invent runs normalizer fast-path, then AI router
  *   3. AI router returns direct_match → job created immediately
  *   4. AI router returns soft_match → SoftMatchPanel shown
- *   5. AI router returns unsupported → AiUnsupportedPanel shown
- *   6. AI router unavailable → fall back to /api/intake/interpret → clarify/preview
+ *   5. AI router returns custom_generate → CAD worker called → CustomPreviewPanel shown
+ *   6. AI router returns unsupported → AiUnsupportedPanel shown
+ *   7. AI router unavailable → fall back to /api/intake/interpret → clarify/preview
  *
  * The old interpret → clarify → preview path is preserved as a fallback
  * for when the AI router is unavailable or returns null.
@@ -45,15 +46,17 @@ import type { InterpretationResult } from "@/app/api/intake/interpret/route";
 
 type FlowPhase =
   | "idle"
-  | "routing"       // NEW: primary path — waiting for /api/invent response
-  | "interpreting"  // FALLBACK: waiting for /api/intake/interpret response
-  | "clarifying"    // FALLBACK: no family identified, show chat
-  | "previewing"    // FALLBACK: interpret-based preview
+  | "routing"        // NEW: primary path — waiting for /api/invent response
+  | "interpreting"   // FALLBACK: waiting for /api/intake/interpret response
+  | "clarifying"     // FALLBACK: no family identified, show chat
+  | "previewing"     // FALLBACK: interpret-based preview
   | "generating"
   | "done"
-  | "unsupported"   // Truth Gate rejection
-  | "soft_match"    // AI Router: soft_match state
-  | "ai_unsupported"; // AI Router: unsupported state
+  | "unsupported"    // Truth Gate rejection
+  | "soft_match"     // AI Router: soft_match state
+  | "ai_unsupported" // AI Router: unsupported state
+  | "custom_preview" // AI Router: custom_generate — LLM CadQuery result
+  | "custom_refining"; // Refinement in progress
 
 interface TruthGateRejection {
   verdict: TruthVerdict;
@@ -75,6 +78,15 @@ interface SoftMatchState {
 interface AiUnsupportedState {
   explanation: string;
   suggestions: ExamplePrompt[];
+}
+
+interface CustomPreviewState {
+  job_id: string;
+  storage_path: string | null;
+  generated_code: string | null;
+  plain_english_summary: string | null;
+  original_description: string;
+  cad_run_id: string | null;
 }
 
 interface LockedSpec {
@@ -122,6 +134,8 @@ export default function UniversalCreatorFlow({
   const [truthGateRejection, setTruthGateRejection] = useState<TruthGateRejection | null>(null);
   const [softMatchState, setSoftMatchState] = useState<SoftMatchState | null>(null);
   const [aiUnsupportedState, setAiUnsupportedState] = useState<AiUnsupportedState | null>(null);
+  const [customPreviewState, setCustomPreviewState] = useState<CustomPreviewState | null>(null);
+  const [refinementInput, setRefinementInput] = useState("");
   const [prefilledPrompt, setPrefilledPrompt] = useState<string | undefined>(initialPrompt);
   // Track the last submitted text so we can pass it to the fallback interpret path
   const [lastSubmittedText, setLastSubmittedText] = useState<string>("");
@@ -150,7 +164,7 @@ export default function UniversalCreatorFlow({
 
   // ── PRIMARY PATH: Submit directly to /api/invent ─────────────────────────
   // This is the new primary flow. The AI router inside /api/invent handles
-  // direct_match, soft_match, and unsupported outcomes.
+  // direct_match, soft_match, custom_generate, and unsupported outcomes.
   // If the AI router is unavailable, we fall back to the interpret path.
   const handleComposerSubmit = useCallback(async (payload: ComposerPayload) => {
     const inputText = (payload.text ?? "").trim();
@@ -212,6 +226,31 @@ export default function UniversalCreatorFlow({
           clarification_question: data.clarification_question ?? null,
         });
         setPhase("soft_match");
+        return;
+      }
+
+      // ── AI Router: custom_generate ready → show CustomPreviewPanel ────────
+      if (data.status === "custom_generate_ready") {
+        setCustomPreviewState({
+          job_id: data.job_id,
+          storage_path: data.storage_path ?? null,
+          generated_code: data.generated_code ?? null,
+          plain_english_summary: data.plain_english_summary ?? null,
+          original_description: inputText,
+          cad_run_id: data.cad_run_id ?? null,
+        });
+        setPhase("custom_preview");
+        return;
+      }
+
+      // ── AI Router: custom_generate failed ────────────────────────────────
+      if (data.status === "custom_generate_failed") {
+        setError(
+          data.error
+            ? `Custom generation failed: ${data.error}`
+            : "Custom generation failed. Please try rephrasing your request."
+        );
+        setPhase("idle");
         return;
       }
 
@@ -444,6 +483,66 @@ export default function UniversalCreatorFlow({
     );
   }, [doGenerate]);
 
+  // ── Custom preview: approve → redirect to job page ────────────────────────
+  const handleCustomApprove = useCallback(() => {
+    if (!customPreviewState?.job_id) return;
+    setJobId(customPreviewState.job_id);
+    setPhase("done");
+    setTimeout(() => {
+      router.push(`/jobs/${customPreviewState.job_id}`);
+    }, 1000);
+  }, [customPreviewState, router]);
+
+  // ── Custom preview: refine → send previous_code + instruction ─────────────
+  const handleCustomRefine = useCallback(async () => {
+    if (!customPreviewState || !refinementInput.trim()) return;
+
+    setPhase("custom_refining");
+    setError(null);
+
+    try {
+      const res = await fetch("/api/invent", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          text: customPreviewState.original_description,
+          custom_generate: true,
+          custom_description: customPreviewState.original_description,
+          previous_code: customPreviewState.generated_code,
+          refinement_instruction: refinementInput.trim(),
+        }),
+      });
+
+      const data = await res.json();
+
+      if (data.status === "custom_generate_ready") {
+        setCustomPreviewState({
+          job_id: data.job_id,
+          storage_path: data.storage_path ?? null,
+          generated_code: data.generated_code ?? null,
+          plain_english_summary: data.plain_english_summary ?? null,
+          original_description: customPreviewState.original_description,
+          cad_run_id: data.cad_run_id ?? null,
+        });
+        setRefinementInput("");
+        setPhase("custom_preview");
+        return;
+      }
+
+      if (data.status === "custom_generate_failed") {
+        setError(data.error ?? "Refinement failed. Please try again.");
+        setPhase("custom_preview");
+        return;
+      }
+
+      setError("Unexpected response from refinement. Please try again.");
+      setPhase("custom_preview");
+    } catch {
+      setError("Refinement failed. Please try again.");
+      setPhase("custom_preview");
+    }
+  }, [customPreviewState, refinementInput]);
+
   const handleReset = useCallback(() => {
     setPhase("idle");
     setInterpretation(null);
@@ -454,6 +553,8 @@ export default function UniversalCreatorFlow({
     setTruthGateRejection(null);
     setSoftMatchState(null);
     setAiUnsupportedState(null);
+    setCustomPreviewState(null);
+    setRefinementInput("");
     setPrefilledPrompt(undefined);
     setLastSubmittedText("");
   }, []);
@@ -573,6 +674,121 @@ export default function UniversalCreatorFlow({
           onTryExample={handleTryExample}
           onReset={handleReset}
         />
+      )}
+
+      {/* Custom preview panel — LLM CadQuery result with refinement loop */}
+      {(phase === "custom_preview" || phase === "custom_refining") && customPreviewState && (
+        <div className="rounded-xl border border-brand-600/50 bg-steel-800/60 overflow-hidden">
+          {/* Header */}
+          <div className="px-5 py-4 border-b border-steel-700 flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <span className="text-brand-400 text-lg">✦</span>
+              <span className="text-steel-100 font-semibold text-sm">Custom Shape Generated</span>
+            </div>
+            <span className="text-xs text-steel-500 font-mono bg-steel-900/60 px-2 py-0.5 rounded">
+              CadQuery
+            </span>
+          </div>
+
+          {/* Summary */}
+          {customPreviewState.plain_english_summary && (
+            <div className="px-5 py-4 border-b border-steel-700/50">
+              <p className="text-sm text-steel-200 leading-relaxed">
+                {customPreviewState.plain_english_summary}
+              </p>
+            </div>
+          )}
+
+          {/* STL viewer placeholder / download link */}
+          {customPreviewState.storage_path && (
+            <div className="px-5 py-4 border-b border-steel-700/50">
+              <div className="rounded-lg bg-steel-900/50 border border-steel-700 p-4 flex items-center justify-between gap-3">
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 rounded bg-brand-600/20 flex items-center justify-center text-brand-400 text-sm font-bold">
+                    STL
+                  </div>
+                  <div>
+                    <div className="text-sm text-steel-200 font-medium">custom_shape.stl</div>
+                    <div className="text-xs text-steel-500">Ready for 3D printing</div>
+                  </div>
+                </div>
+                <a
+                  href={`/api/download/${customPreviewState.job_id}`}
+                  className="text-xs bg-brand-600 hover:bg-brand-500 text-white px-3 py-1.5 rounded-md transition-colors font-medium"
+                  download
+                >
+                  Download STL
+                </a>
+              </div>
+            </div>
+          )}
+
+          {/* Generated code (collapsible) */}
+          {customPreviewState.generated_code && (
+            <details className="border-b border-steel-700/50">
+              <summary className="px-5 py-3 text-xs text-steel-400 cursor-pointer hover:text-steel-300 transition-colors select-none">
+                View generated CadQuery code
+              </summary>
+              <pre className="px-5 pb-4 text-xs text-steel-300 font-mono overflow-x-auto bg-steel-900/30 leading-relaxed">
+                {customPreviewState.generated_code}
+              </pre>
+            </details>
+          )}
+
+          {/* Refinement input */}
+          <div className="px-5 py-4">
+            <p className="text-xs text-steel-400 mb-3 font-medium">
+              Not quite right? Describe what to change:
+            </p>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={refinementInput}
+                onChange={(e) => setRefinementInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && refinementInput.trim() && phase !== "custom_refining") {
+                    void handleCustomRefine();
+                  }
+                }}
+                placeholder="e.g. make it 20% taller, add a hole in the center, round the corners…"
+                disabled={phase === "custom_refining"}
+                className="flex-1 bg-steel-900/60 border border-steel-600 rounded-lg px-3 py-2 text-sm text-steel-200 placeholder-steel-600 focus:outline-none focus:border-brand-500 disabled:opacity-50"
+              />
+              <button
+                onClick={() => void handleCustomRefine()}
+                disabled={!refinementInput.trim() || phase === "custom_refining"}
+                className="bg-steel-700 hover:bg-steel-600 disabled:opacity-40 disabled:cursor-not-allowed text-steel-200 text-sm px-4 py-2 rounded-lg transition-colors font-medium whitespace-nowrap"
+              >
+                {phase === "custom_refining" ? (
+                  <span className="flex items-center gap-1.5">
+                    <span className="w-3 h-3 border border-steel-400 border-t-transparent rounded-full animate-spin" />
+                    Refining…
+                  </span>
+                ) : (
+                  "Refine →"
+                )}
+              </button>
+            </div>
+          </div>
+
+          {/* Action buttons */}
+          <div className="px-5 pb-5 flex items-center gap-3">
+            <button
+              onClick={handleCustomApprove}
+              disabled={phase === "custom_refining"}
+              className="flex-1 bg-brand-600 hover:bg-brand-500 disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm font-semibold px-4 py-2.5 rounded-lg transition-colors"
+            >
+              ✓ Approve &amp; Download
+            </button>
+            <button
+              onClick={handleReset}
+              disabled={phase === "custom_refining"}
+              className="text-sm text-steel-500 hover:text-steel-300 transition-colors disabled:opacity-40"
+            >
+              Start over
+            </button>
+          </div>
+        </div>
       )}
 
       {/* Live Print Plan (fallback clarify/preview path) */}

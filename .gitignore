@@ -57,3 +57,8 @@ apps/cad-worker/artifacts/
 venv/
 .venv/
 env/
+scripts/get_keys_and_run.py
+scripts/poll_and_prove.py
+scripts/verify_4_live.py
+scripts/verify_e2e_download.py
+scripts/wait_for_cad_worker.py

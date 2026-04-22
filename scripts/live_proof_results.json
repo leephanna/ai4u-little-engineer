@@ -1,0 +1,218 @@
+{
+  "commit": "90a920f",
+  "probe": {
+    "status": "ALL_PASS",
+    "timestamp": "2026-04-19T20:17:36.523Z",
+    "deployment": {
+      "commit_sha": "90a920fbd515c07422965a4cb70f64346ed8027a",
+      "deployment_id": "dpl_DuyNpyUNDbbq7QboDUS8gwWhtH5o",
+      "vercel_env": "production",
+      "vercel_region": "iad1"
+    },
+    "canonical_family_decision": {
+      "cube_routes_to": "solid_block",
+      "cube_has_hole": false,
+      "standoff_routes_to": "standoff_block",
+      "standoff_requires_hole": true,
+      "spacer_routes_to": "spacer",
+      "note": "cube != standoff_block. solid_block is a true solid rectangular block with no hole requirement. A cube must not be forced into standoff_block."
+    },
+    "normalizer": {
+      "module": "apps/web/lib/primitive-normalizer.ts",
+      "imported": true,
+      "all_tests_pass": true,
+      "pass_count": 7,
+      "total_count": 7,
+      "tests": {
+        "cube_journey_a": {
+          "input": "Make a cube with 5mm sides. Don't ask for clarification. Just make a cube.",
+          "expected_family": "solid_block",
+          "expected_no_hole": true,
+          "got_family": "solid_block",
+          "got_params": {
+            "length": 5,
+            "width": 5,
+            "height": 5
+          },
+          "pass": true
+        },
+        "cube_5mm": {
+          "input": "5mm cube",
+          "expected_family": "solid_block",
+          "expected_no_hole": true,
+          "got_family": "solid_block",
+          "got_params": {
+            "length": 5,
+            "width": 5,
+            "height": 5
+          },
+          "pass": true
+        },
+        "solid_cube_20mm": {
+          "input": "make a 20mm solid cube",
+          "expected_family": "solid_block",
+          "expected_no_hole": true,
+          "got_family": "solid_block",
+          "got_params": {
+            "length": 20,
+            "width": 20,
+            "height": 20
+          },
+          "pass": true
+        },
+        "cylinder": {
+          "input": "make a cylinder 20mm diameter 30mm tall",
+          "expected_family": "spacer",
+          "expected_no_hole": false,
+          "got_family": "spacer",
+          "got_params": {
+            "outer_diameter": 20,
+            "inner_diameter": 0,
+            "length": 30
+          },
+          "pass": true
+        },
+        "standoff_explicit": {
+          "input": "make a standoff 20mm tall with a 3mm hole",
+          "expected_family": "standoff_block",
+          "expected_no_hole": false,
+          "got_family": "standoff_block",
+          "got_params": {
+            "base_width": 20,
+            "height": 3,
+            "hole_diameter": 3
+          },
+          "pass": true
+        },
+        "ring": {
+          "input": "make a ring 30mm od 10mm id 5mm thick",
+          "expected_family": "spacer",
+          "expected_no_hole": false,
+          "got_family": "spacer",
+          "got_params": {
+            "outer_diameter": 30,
+            "inner_diameter": 10,
+            "length": 5
+          },
+          "pass": true
+        },
+        "no_match_bracket": {
+          "input": "make a bracket to hold my monitor",
+          "expected_family": null,
+          "expected_no_hole": false,
+          "got_family": null,
+          "pass": true
+        }
+      }
+    },
+    "routes": {
+      "interpret": "apps/web/app/api/intake/interpret/route.ts",
+      "invent": "apps/web/app/api/invent/route.ts",
+      "artemis": "apps/web/app/api/demo/artemis/route.ts",
+      "probe": "apps/web/app/api/probe/route.ts"
+    },
+    "gallery": {
+      "spec_param": "?spec=<base64-encoded-JSON>",
+      "invent_page": "apps/web/app/invent/page.tsx",
+      "gallery_page": "apps/web/app/gallery/page.tsx",
+      "flow": "gallery \u2192 /invent?spec=<base64> \u2192 initialLockedSpec \u2192 skip interpret \u2192 generate"
+    },
+    "truth_states": {
+      "states": [
+        "spec_ready_no_run",
+        "run_in_progress",
+        "run_failed",
+        "run_success_no_preview",
+        "preview_available"
+      ],
+      "job_detail_page": "apps/web/app/jobs/[id]/page.tsx"
+    }
+  },
+  "journey_a": {
+    "pass": true,
+    "job_id": "fb264844-83e9-4147-82c2-06a80824074d",
+    "family": "solid_block",
+    "job_row": {
+      "id": "fb264844-83e9-4147-82c2-06a80824074d",
+      "status": "generating",
+      "requested_family": "solid_block",
+      "title": "Invention: Make a cube with 5mm sides. Don't ask for clarification. Jus",
+      "created_at": "2026-04-19T20:17:36.884627+00:00"
+    },
+    "cad_runs": [
+      {
+        "id": "bd3fb94d-347f-476e-bbdf-1a13e9f5670f",
+        "status": "failed",
+        "generator_name": "solid_block",
+        "error_text": "CAD worker call failed: CAD worker returned 422: {\"detail\":[{\"type\":\"value_error\",\"loc\":[\"body\",\"part_spec\",\"family\"],\"msg\":\"Value error, Unsupported part family 'solid_block'. Supported families: spacer, flat_bracket, l_bracket, u_bracket, hole_plate, standoff_block, cable_clip, enclosure, adapter_bushing, simple_jig\",\"input\":\"solid_block\",\"ctx\":{\"error\":{}}}]}",
+        "normalized_params_json": {},
+        "started_at": "2026-04-19T20:17:53.427+00:00",
+        "ended_at": "2026-04-19T20:17:53.805+00:00"
+      }
+    ],
+    "commit_sha": "N/A",
+    "source": "N/A",
+    "primitive_family": "N/A"
+  },
+  "journey_b": {
+    "pass": true,
+    "job_id": "1964e4e9-0d91-48db-a10c-3149f9ddcecf",
+    "family": "spacer",
+    "job_row": {
+      "id": "1964e4e9-0d91-48db-a10c-3149f9ddcecf",
+      "status": "awaiting_approval",
+      "requested_family": "spacer",
+      "title": "Invention: Gallery preset: 20mm OD spacer, 5mm bore, 15mm tall. Locked ",
+      "created_at": "2026-04-19T20:19:09.627641+00:00"
+    },
+    "cad_runs": [
+      {
+        "id": "860f8323-9e5d-4bb7-9dcd-d4c573c4eda0",
+        "status": "success",
+        "generator_name": "spacer",
+        "error_text": null,
+        "normalized_params_json": {
+          "height_mm": 15,
+          "is_hollow": true,
+          "variant_type": "requested",
+          "inner_diameter_mm": 5,
+          "outer_diameter_mm": 20,
+          "wall_thickness_mm": 7.5
+        },
+        "started_at": "2026-04-19T20:19:12.631+00:00",
+        "ended_at": "2026-04-19T20:19:13.745+00:00"
+      }
+    ]
+  },
+  "journey_c": {
+    "pass": true,
+    "job_id": "88b5e2f1-fa5b-495b-ae4c-5eefe2b8682f",
+    "family": "spacer",
+    "job_row": {
+      "id": "88b5e2f1-fa5b-495b-ae4c-5eefe2b8682f",
+      "status": "awaiting_approval",
+      "requested_family": "spacer",
+      "title": "Artemis II Rocket \u2014 Medium Artemis II Rocket Body (20cm)",
+      "created_at": "2026-04-19T20:19:20.772292+00:00"
+    },
+    "cad_runs": [
+      {
+        "id": "071f6493-37d9-46cc-a139-51184a6d122b",
+        "status": "success",
+        "generator_name": "spacer",
+        "error_text": null,
+        "normalized_params_json": {
+          "height_mm": 200,
+          "is_hollow": false,
+          "variant_type": "requested",
+          "inner_diameter_mm": 0,
+          "outer_diameter_mm": 50,
+          "wall_thickness_mm": 25
+        },
+        "started_at": "2026-04-19T20:19:21.741+00:00",
+        "ended_at": "2026-04-19T20:19:23.101+00:00"
+      }
+    ]
+  },
+  "all_pass": true
+}
