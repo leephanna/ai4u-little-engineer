@@ -4,12 +4,15 @@
  * Universal Creation Engine UI.
  *
  * Query params:
- *   ?q=<prompt>    — pre-fill the input and auto-submit (old gallery path)
- *   ?spec=<base64> — locked complete spec payload (new gallery path)
- *                    Skips interpret entirely, goes straight to previewing state.
+ *   ?q=<prompt>                    — pre-fill the input and auto-submit (old gallery path)
+ *   ?spec=<base64>                 — locked complete spec payload (parametric gallery path)
+ *                                    Skips interpret entirely, goes straight to previewing state.
+ *   ?custom_generate=true          — direct custom-generate fast-path (custom gallery items)
+ *   &custom_description=<text>     — description to send directly to /generate-custom on CAD worker
  *
- * The ?spec= path is used by Gallery "Make This" buttons on locked-spec items.
- * It encodes a JSON object: { family, parameters, reasoning, confidence }
+ * The ?spec= path is used by Gallery "Make This" buttons on locked-spec parametric items.
+ * The ?custom_generate=true path is used by Gallery "Make This" buttons on custom-generate items
+ * (e.g., Artemis II Nozzle Replica). It bypasses the AI router entirely.
  */
 
 "use client";
@@ -43,6 +46,10 @@ function InventContent() {
   const specEncoded = searchParams.get("spec");
   const lockedSpec = parseLockedSpec(specEncoded);
 
+  // Custom-generate fast-path: bypass AI router, go straight to CAD worker
+  const isCustomGenerate = searchParams.get("custom_generate") === "true";
+  const customDescription = searchParams.get("custom_description") ?? undefined;
+
   return (
     <div className="min-h-screen bg-steel-950">
       <div className="max-w-3xl mx-auto px-4 py-10">
@@ -55,8 +62,9 @@ function InventContent() {
           </p>
         </div>
         <UniversalCreatorFlow
-          initialPrompt={lockedSpec ? undefined : q}
+          initialPrompt={lockedSpec || isCustomGenerate ? undefined : q}
           initialLockedSpec={lockedSpec ?? undefined}
+          initialCustomDescription={isCustomGenerate ? customDescription : undefined}
         />
       </div>
     </div>

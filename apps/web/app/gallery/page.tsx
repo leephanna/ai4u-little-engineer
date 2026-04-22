@@ -419,11 +419,11 @@ const TRUST_TIER_LABELS: Record<string, string> = {
 
 /** Build the href for a gallery card's "Make This" button */
 function buildMakeHref(card: GalleryCard): string {
-  const encoded = btoa(unescape(encodeURIComponent(JSON.stringify(card.lockedSpec))));
-  // Custom-generate items use ?q= so UniversalCreatorFlow routes via AI router
+  // Custom-generate items bypass the AI router entirely via the direct fast-path
   if (card.lockedSpec.custom_generate && card.lockedSpec.custom_description) {
-    return `/invent?q=${encodeURIComponent(card.lockedSpec.custom_description)}`;
+    return `/invent?custom_generate=true&custom_description=${encodeURIComponent(card.lockedSpec.custom_description)}`;
   }
+  const encoded = btoa(unescape(encodeURIComponent(JSON.stringify(card.lockedSpec))));
   return `/invent?spec=${encodeURIComponent(encoded)}`;
 }
 

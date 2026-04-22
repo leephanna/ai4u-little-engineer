@@ -107,6 +107,11 @@ interface Props {
    * When provided, skips all steps and goes straight to previewing.
    */
   initialLockedSpec?: LockedSpec;
+  /**
+   * Custom-generate fast-path description (used by Gallery "Make This" via ?custom_generate=true param).
+   * When provided, bypasses the AI router entirely and calls /generate-custom on the CAD worker directly.
+   */
+  initialCustomDescription?: string;
 }
 
 const CONSUMER_EXAMPLES = [
@@ -123,6 +128,7 @@ export default function UniversalCreatorFlow({
   examplePrompts = CONSUMER_EXAMPLES,
   initialPrompt,
   initialLockedSpec,
+  initialCustomDescription,
 }: Props) {
   const router = useRouter();
   const [phase, setPhase] = useState<FlowPhase>("idle");
@@ -158,6 +164,56 @@ export default function UniversalCreatorFlow({
       };
       setInterpretation(syntheticResult);
       setPhase("previewing");
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // ── Custom-generate fast-path (gallery items with custom_generate=true) ────
+  // Bypasses the AI router entirely. Calls /api/invent with custom_generate: true
+  // so it goes straight to handleCustomGenerate → CAD worker /generate-custom.
+  useEffect(() => {
+    if (initialCustomDescription && phase === "idle") {
+      setPhase("routing");
+      setError(null);
+      setLastSubmittedText(initialCustomDescription);
+
+      fetch("/api/invent", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          problem: initialCustomDescription,
+          custom_generate: true,
+          custom_description: initialCustomDescription,
+        }),
+      })
+        .then((res) => res.json())
+        .then((data) => {
+          if (data.status === "custom_generate_ready") {
+            setCustomPreviewState({
+              job_id: data.job_id,
+              storage_path: data.storage_path ?? null,
+              generated_code: data.generated_code ?? null,
+              plain_english_summary: data.plain_english_summary ?? null,
+              original_description: initialCustomDescription,
+              cad_run_id: data.cad_run_id ?? null,
+            });
+            setPhase("custom_preview");
+          } else if (data.status === "custom_generate_failed") {
+            setError(
+              data.error
+                ? `Custom generation failed: ${data.error}`
+                : "Custom generation failed. Please try rephrasing your request."
+            );
+            setPhase("idle");
+          } else {
+            setError("Unexpected response from custom generation. Please try again.");
+            setPhase("idle");
+          }
+        })
+        .catch(() => {
+          setError("Custom generation request failed. Please try again.");
+          setPhase("idle");
+        });
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);

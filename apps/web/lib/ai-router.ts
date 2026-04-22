@@ -9,10 +9,15 @@
  * first and is never replaced by this module.
  *
  * Router outcomes:
- *   DIRECT_MATCH     — confidence ≥ 75 AND no missing_dims → create job immediately
+ *   DIRECT_MATCH     — confidence ≥ 85 AND no missing_dims → create job immediately
  *   SOFT_MATCH       — confidence ≥ 50 OR missing_dims present → show editable dims
  *   CUSTOM_GENERATE  — family === null but shape is describable → LLM CadQuery generation
  *   UNSUPPORTED      — family === null AND shape is not describable → graceful dead-end
+ *
+ * Custom-generate pre-flight:
+ *   Before the LLM call, a keyword detector checks for organic/complex shape signals.
+ *   If triggered, the router returns custom_generate immediately without an LLM call.
+ *   This ensures rocket fins, nozzles, blades, etc. are NEVER mis-routed to spacer.
  *
  * Web search:
  *   When the input contains proper nouns, brand names, or product references,
@@ -68,9 +73,9 @@ interface RouterLlmResponse {
   explanation: string;
   missing_dims: string[];
   clarification_question: string | null;
-  /** New field: set to true when the LLM decides custom_generate is appropriate */
+  /** Set to true when the LLM decides custom_generate is appropriate */
   use_custom_generate?: boolean;
-  /** New field: cleaned-up description for the custom generator */
+  /** Cleaned-up description for the custom generator */
   custom_description?: string;
 }
 
@@ -95,83 +100,196 @@ export const VALID_FAMILIES = [
 export type ValidFamily = (typeof VALID_FAMILIES)[number];
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Custom-generate keyword pre-flight detector
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Organic/complex shape keywords that ALWAYS trigger custom_generate.
+ *
+ * These are shapes that genuinely cannot be represented by any of the 11
+ * parametric families, regardless of how the LLM maps them. The pre-flight
+ * check runs BEFORE the LLM call to prevent mis-routing (e.g., "rocket" → spacer).
+ *
+ * Rule: if ANY of these phrases appear in the input, return custom_generate
+ * immediately without calling the LLM router.
+ */
+const CUSTOM_GENERATE_KEYWORDS: string[] = [
+  // Rocket / aerospace
+  "fins",
+  "fin ",
+  "nose cone",
+  "nosecone",
+  "bell nozzle",
+  "bell curve",
+  "rocket nozzle",
+  "nozzle bell",
+  "engine nozzle",
+  "thrust nozzle",
+  "rocket shape",
+  "rocket body",
+  "rocket with",
+  "rocket model",
+  "propeller",
+  "propellor",
+  "turbine blade",
+  "turbine blades",
+  "rotor blade",
+  "impeller",
+  // Organic / biological
+  "airfoil",
+  "aerofoil",
+  "naca ",
+  "wing profile",
+  "hydrofoil",
+  "foil profile",
+  // Mechanical complex
+  "gear teeth",
+  "gear with",
+  "helical gear",
+  "spur gear",
+  "bevel gear",
+  "worm gear",
+  "rack and pinion",
+  "involute",
+  "cam profile",
+  "eccentric cam",
+  "lobe",
+  "spline profile",
+  "knurled",
+  "knurling",
+  // Artistic / organic shapes
+  "organic shape",
+  "curved body",
+  "tapered body",
+  "tapered with",
+  "freeform",
+  "free-form",
+  "sculpted",
+  "anatomical",
+  "ergonomic grip",
+  "contoured",
+  "parametric surface",
+  "loft",
+  "lofted",
+  "swept profile",
+  "swept surface",
+  "voronoi",
+  "lattice structure",
+  "gyroid",
+  "triply periodic",
+  // Multi-body / assemblies
+  "multi-body",
+  "multi body",
+  "assembly with",
+  "combined shape",
+  "integrated features",
+  "complex bracket",
+  "custom bracket with",
+  // Specific complex parts
+  "hook shape",
+  "s-curve",
+  "s curve",
+  "helix",
+  "helical",
+  "spiral shape",
+  "coil shape",
+  "phone stand with",
+  "cable routing",
+  "octagonal with",
+  "chamfered edges",
+  "chamfered corners",
+  "filleted",
+  "fillet radius",
+  "draft angle",
+  "undercut",
+];
+
+/**
+ * Check if a user input contains organic/complex shape signals that require
+ * custom CadQuery generation rather than parametric family mapping.
+ *
+ * Returns the matched keyword (for logging) or null if no match.
+ */
+export function detectCustomGenerateKeyword(input: string): string | null {
+  const lower = input.toLowerCase();
+  for (const kw of CUSTOM_GENERATE_KEYWORDS) {
+    if (lower.includes(kw)) return kw;
+  }
+  return null;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // System prompt
 // ─────────────────────────────────────────────────────────────────────────────
 
 const ROUTER_SYSTEM_PROMPT = `You are a parametric CAD routing assistant for AI4U Little Engineer.
-Your job is to map any user request to the best available 3D-printable part family and infer reasonable default dimensions.
+Your job is to map a user request to the best available 3D-printable part family, OR decide that the shape requires custom CadQuery generation.
 
-CRITICAL: You MUST return the "family" field as EXACTLY one of these strings (case-sensitive), or null if no family fits:
+CRITICAL: You MUST return the "family" field as EXACTLY one of these strings (case-sensitive), or null:
   "spacer" | "l_bracket" | "u_bracket" | "hole_plate" | "cable_clip" |
   "enclosure" | "flat_bracket" | "standoff_block" | "adapter_bushing" |
   "simple_jig" | "solid_block"
 
 NEVER return human-readable names like "Rocket Model", "Cable Holder", "Electronics Enclosure", "Cylinder", "Box", etc.
-These will break the system. Only the exact strings above are valid.
-
-Mapping guide for unusual requests:
-- rocket, missile, cylinder shape, tube, pipe → "spacer" (if hollow) or "standoff_block" (if solid post)
-- box, enclosure, case, container, housing, shell → "enclosure"
-- clip, holder, clamp for wires/cables → "cable_clip"
-- plate with holes, mounting plate, perforated plate → "hole_plate"
-- bracket, angle bracket, L-shape, corner mount → "l_bracket"
-- U-shape, saddle, pipe clamp → "u_bracket"
-- flat plate, strap, bar, shelf bracket → "flat_bracket"
-- bushing, sleeve, adapter, bore reducer → "adapter_bushing"
-- block, cube, rectangular solid, box without lid → "solid_block"
-- jig, fixture, alignment tool, drill guide → "simple_jig"
-- post, standoff, riser, pillar, column, pedestal → "standoff_block"
-- ring, washer, spacer, tube, hollow cylinder → "spacer"
+These will break the system. Only the exact strings above are valid, or null.
 
 Available part families and their required parameters:
-- spacer: outer_diameter (mm), inner_diameter (mm), length (mm)
-- l_bracket: leg_a (mm), leg_b (mm), thickness (mm), width (mm)
-- u_bracket: pipe_od (mm), wall_thickness (mm), flange_width (mm), flange_length (mm)
-- hole_plate: length (mm), width (mm), thickness (mm), hole_count, hole_diameter (mm)
-- cable_clip: cable_od (mm), wall_thickness (mm), base_width (mm)
-- enclosure: inner_length (mm), inner_width (mm), inner_height (mm), wall_thickness (mm)
-- flat_bracket: length (mm), width (mm), thickness (mm)
-- standoff_block: base_width (mm), height (mm), hole_diameter (mm)
-- adapter_bushing: outer_diameter (mm), inner_diameter (mm), length (mm)
-- simple_jig: length (mm), width (mm), thickness (mm)
-- solid_block: length (mm), width (mm), height (mm)
+- spacer: outer_diameter (mm), inner_diameter (mm), length (mm) — simple hollow cylinder only
+- l_bracket: leg_a (mm), leg_b (mm), thickness (mm), width (mm) — L-shaped flat bracket
+- u_bracket: pipe_od (mm), wall_thickness (mm), flange_width (mm), flange_length (mm) — U-shaped saddle
+- hole_plate: length (mm), width (mm), thickness (mm), hole_count, hole_diameter (mm) — flat plate with holes
+- cable_clip: cable_od (mm), wall_thickness (mm), base_width (mm) — simple cable routing clip
+- enclosure: inner_length (mm), inner_width (mm), inner_height (mm), wall_thickness (mm) — rectangular box
+- flat_bracket: length (mm), width (mm), thickness (mm) — flat rectangular plate
+- standoff_block: base_width (mm), height (mm), hole_diameter (mm) — rectangular standoff post
+- adapter_bushing: outer_diameter (mm), inner_diameter (mm), length (mm) — cylindrical bore adapter
+- simple_jig: length (mm), width (mm), thickness (mm) — flat rectangular jig
+- solid_block: length (mm), width (mm), height (mm) — solid rectangular block
 
-CUSTOM GENERATE option:
-When the user requests a shape that:
-- Cannot be reasonably mapped to ANY of the 11 families above, AND
-- Is a describable physical object (not a living creature, not a concept, not software), AND
-- Could be 3D printed (e.g., organic shapes, complex mechanical parts, artistic objects, custom brackets with unusual geometry, multi-feature parts)
-Then set: "family": null, "use_custom_generate": true, "custom_description": "<cleaned up description for CadQuery>"
+DECISION RULES — read carefully:
 
-Examples that should use custom_generate:
-- "design a turbine blade" → custom_generate
-- "create a phone stand with cable routing" → custom_generate
-- "make an octagonal mounting plate with chamfered edges" → custom_generate
-- "design a gear with 20 teeth" → custom_generate
-- "create a hook for hanging tools" → custom_generate
+RULE A — Use a parametric family (family: "name", use_custom_generate: false) ONLY when:
+  - The shape is a simple geometric primitive (cylinder, box, L-shape, U-shape, flat plate, etc.)
+  - The shape has NO organic curves, fins, nozzle bells, airfoils, gear teeth, or complex profiles
+  - The parametric family can faithfully represent the geometry (not just approximate it)
+  - Confidence ≥ 85 means the family is a genuinely good fit
 
-Examples that should NOT use custom_generate (use a parametric family instead):
-- "make a spacer 20mm wide" → spacer
-- "I need a box for my Arduino" → enclosure
-- "cable clip for 5mm wire" → cable_clip
+RULE B — Use custom_generate (family: null, use_custom_generate: true) when:
+  - The shape has fins, wings, nozzle bells, airfoils, or swept/lofted profiles
+  - The shape has gear teeth, cam profiles, helical features, or involute curves
+  - The shape is organic, sculpted, ergonomic, or has complex curvature
+  - The shape has multiple integrated features that no single parametric family can represent
+  - The best parametric match would be a poor approximation (confidence < 85)
+  - Examples: rocket with fins, bell nozzle, turbine blade, gear, propeller, phone stand with routing, hook
 
-Examples that are truly unsupported (family: null, use_custom_generate: false):
-- "design a human face" → unsupported (organic/biological)
-- "create a working motor" → unsupported (functional mechanism, not printable)
-- "make a cat" → unsupported (living creature)
+RULE C — Use unsupported (family: null, use_custom_generate: false) ONLY for:
+  - Living creatures (animals, humans, faces)
+  - Abstract concepts (emotions, ideas)
+  - Functional mechanisms requiring assembly (motors, engines, electronics)
+  - Software or digital objects
 
-Rules:
-1. Always pick the CLOSEST family from the list above, even for unusual requests (e.g. "rocket" → "spacer" or "standoff_block")
-2. Only set use_custom_generate: true when the shape genuinely cannot be represented by any parametric family
-3. Infer dimensions from context clues. If none given, use sensible defaults for the part type (e.g. spacer default: outer_diameter=20, inner_diameter=5, length=10)
-   EXCEPTION: For cable_clip, NEVER default wall_thickness or base_width — always add them to missing_dims if not explicitly stated.
-   EXCEPTION: For enclosure, NEVER default wall_thickness — always add it to missing_dims if not explicitly stated.
-   EXCEPTION: For u_bracket, NEVER default flange_width or flange_length — always add them to missing_dims if not explicitly stated.
+IMPORTANT: Do NOT force a parametric family onto a complex shape just to avoid custom_generate.
+A rocket with fins is NOT a spacer. A bell nozzle is NOT a spacer. A gear is NOT a solid_block.
+When in doubt between a poor parametric match and custom_generate, ALWAYS choose custom_generate.
+
+Confidence scoring:
+- 90-100: Perfect fit, all required dims present or easily inferred
+- 75-89: Good fit, minor dimension inference needed
+- 50-74: Approximate fit, significant geometry mismatch
+- <50: Poor fit — use custom_generate instead
+
+Rules for parametric families:
+1. Only set use_custom_generate: false when confidence ≥ 85
+2. If confidence < 85 for ALL parametric families, set family: null, use_custom_generate: true
+3. Infer dimensions from context clues. If none given, use sensible defaults.
+   EXCEPTION: For cable_clip, NEVER default wall_thickness or base_width — add to missing_dims.
+   EXCEPTION: For enclosure, NEVER default wall_thickness — add to missing_dims.
+   EXCEPTION: For u_bracket, NEVER default flange_width or flange_length — add to missing_dims.
 4. Return confidence 0-100 based on how well the request maps to the family
 5. Include a one-sentence human-readable explanation of your reasoning
 6. List any dimensions you could NOT infer from the input in missing_dims
 7. If you need one key piece of info to resolve ambiguity, put a targeted question in clarification_question
-8. When web search context is provided after the user's request, extract any physical dimensions (mm, cm, inches — convert to mm). Use those dimensions to fill in parameters. Prefer exact dimensions from the search context over generic defaults. Note in your explanation that you used reference dimensions from context.
+8. When web search context is provided, extract physical dimensions and use them. Note in explanation.
 
 Return ONLY valid JSON matching this schema (no markdown, no extra text):
 {
@@ -369,14 +487,11 @@ function classifyOutcome(llm: RouterLlmResponse): RouterOutcome {
 
   const hasMissingDims = llm.missing_dims && llm.missing_dims.length > 0;
 
-  // RULE: If a valid family is identified, the minimum outcome is soft_match.
-  // The number of missing dims does NOT determine whether soft_match shows —
-  // it only determines whether the Generate button is enabled.
-  // Only return direct_match when: confidence ≥ 75 AND no missing dims.
-  if (llm.confidence >= 75 && !hasMissingDims) return "direct_match";
+  // RULE: Raise the direct_match threshold to 85 to reduce false positives.
+  // Only return direct_match when: confidence ≥ 85 AND no missing dims.
+  if (llm.confidence >= 85 && !hasMissingDims) return "direct_match";
 
   // Everything else with a valid family → soft_match (show editable dims panel)
-  // This includes: confidence < 50, any number of missing dims, etc.
   return "soft_match";
 }
 
@@ -391,12 +506,36 @@ function classifyOutcome(llm: RouterLlmResponse): RouterOutcome {
  *
  * IMPORTANT: This function is NEVER called when the primitive normalizer
  * already matched. The normalizer fast-path takes priority.
+ *
+ * Pre-flight: checks for organic/complex shape keywords BEFORE the LLM call.
+ * If a keyword matches, returns custom_generate immediately.
  */
 export async function runAiRouter(
   userInput: string,
   openai: OpenAI
 ): Promise<AiRouterResult | null> {
   try {
+    // ── Pre-flight: organic/complex shape keyword detector ───────────────────
+    // This runs BEFORE the LLM call to prevent mis-routing of complex shapes.
+    // E.g., "rocket with 4 fins" would otherwise be mapped to "spacer".
+    const customKw = detectCustomGenerateKeyword(userInput);
+    if (customKw) {
+      console.log(
+        `[ai-router] custom_generate pre-flight triggered by keyword: "${customKw}" in: "${userInput.slice(0, 80)}"`
+      );
+      return {
+        outcome: "custom_generate",
+        family: null,
+        parameters: {},
+        confidence: 0,
+        explanation: `Shape contains complex geometry ("${customKw}") that requires custom CadQuery generation.`,
+        missing_dims: [],
+        clarification_question: null,
+        used_web_search: false,
+        custom_description: userInput.trim(),
+      };
+    }
+
     let contextAddendum = "";
     let usedWebSearch = false;
 
@@ -466,13 +605,29 @@ export async function runAiRouter(
         llm.confidence = 0;
         llm.missing_dims = [];
         // If the LLM returned an invalid family but didn't flag custom_generate,
-        // check if the description sounds like a describable physical object.
-        // Default to custom_generate for safety (better than dead-end unsupported).
+        // default to custom_generate (better than dead-end unsupported).
         if (!llm.use_custom_generate) {
           llm.use_custom_generate = true;
           llm.custom_description = userInput.trim();
         }
       }
+    }
+
+    // ── Post-LLM confidence gate ──────────────────────────────────────────────
+    // If the LLM returned a family but with low confidence (< 60), and did NOT
+    // explicitly set use_custom_generate, force custom_generate. This catches
+    // cases where the LLM maps a complex shape to a family but is uncertain.
+    if (
+      llm.family !== null &&
+      llm.confidence < 60 &&
+      !llm.use_custom_generate
+    ) {
+      console.log(
+        `[ai-router] Post-LLM confidence gate: confidence=${llm.confidence} < 60 for family="${llm.family}" — routing to custom_generate`
+      );
+      llm.family = null;
+      llm.use_custom_generate = true;
+      llm.custom_description = userInput.trim();
     }
 
     const outcome = classifyOutcome(llm);
