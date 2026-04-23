@@ -34,6 +34,7 @@
 
 import { useState, useCallback, useEffect } from "react";
 import { useRouter } from "next/navigation";
+import dynamic from "next/dynamic";
 import UniversalInputComposer, { type ComposerPayload } from "./UniversalInputComposer";
 import LivePrintPlan from "./LivePrintPlan";
 import ClarificationChat from "./ClarificationChat";
@@ -43,6 +44,19 @@ import { UnsupportedRequestPanel, type TruthVerdict } from "./UnsupportedRequest
 import { SoftMatchPanel } from "./SoftMatchPanel";
 import { AiUnsupportedPanel, type ExamplePrompt } from "./AiUnsupportedPanel";
 import type { InterpretationResult } from "@/app/api/intake/interpret/route";
+
+// Lazy-load the heavy Three.js viewer — same pattern as JobPreviewPanel
+const StlViewer = dynamic(
+  () => import("@/components/StlViewer").then((m) => ({ default: m.StlViewer })),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="w-full aspect-video max-h-72 bg-steel-900 rounded-xl animate-pulse flex items-center justify-center">
+        <p className="text-steel-600 text-xs">Loading 3D viewer…</p>
+      </div>
+    ),
+  }
+);
 
 type FlowPhase =
   | "idle"
@@ -82,6 +96,7 @@ interface AiUnsupportedState {
 
 interface CustomPreviewState {
   job_id: string;
+  artifact_id: string | null;
   storage_path: string | null;
   generated_code: string | null;
   plain_english_summary: string | null;
@@ -145,6 +160,8 @@ export default function UniversalCreatorFlow({
   const [prefilledPrompt, setPrefilledPrompt] = useState<string | undefined>(initialPrompt);
   // Track the last submitted text so we can pass it to the fallback interpret path
   const [lastSubmittedText, setLastSubmittedText] = useState<string>("");
+  // Signed URL for the inline 3D viewer in custom_preview panel
+  const [customStlSignedUrl, setCustomStlSignedUrl] = useState<string | null>(null);
 
   // ── Locked spec fast-path ─────────────────────────────────────────────────
   useEffect(() => {
@@ -191,6 +208,7 @@ export default function UniversalCreatorFlow({
           if (data.status === "custom_generate_ready") {
             setCustomPreviewState({
               job_id: data.job_id,
+              artifact_id: data.artifact_id ?? null,
               storage_path: data.storage_path ?? null,
               generated_code: data.generated_code ?? null,
               plain_english_summary: data.plain_english_summary ?? null,
@@ -201,8 +219,8 @@ export default function UniversalCreatorFlow({
           } else if (data.status === "custom_generate_failed") {
             setError(
               data.error
-                ? `Custom generation failed: ${data.error}`
-                : "Custom generation failed. Please try rephrasing your request."
+                ? `Custom shape couldn't be generated — ${data.error}`
+                : "Custom shape couldn't be generated — try describing it differently."
             );
             setPhase("idle");
           } else {
@@ -289,6 +307,7 @@ export default function UniversalCreatorFlow({
       if (data.status === "custom_generate_ready") {
         setCustomPreviewState({
           job_id: data.job_id,
+          artifact_id: data.artifact_id ?? null,
           storage_path: data.storage_path ?? null,
           generated_code: data.generated_code ?? null,
           plain_english_summary: data.plain_english_summary ?? null,
@@ -303,8 +322,8 @@ export default function UniversalCreatorFlow({
       if (data.status === "custom_generate_failed") {
         setError(
           data.error
-            ? `Custom generation failed: ${data.error}`
-            : "Custom generation failed. Please try rephrasing your request."
+            ? `Custom shape couldn't be generated — ${data.error}`
+            : "Custom shape couldn't be generated — try describing it differently."
         );
         setPhase("idle");
         return;
@@ -539,6 +558,30 @@ export default function UniversalCreatorFlow({
     );
   }, [doGenerate]);
 
+  // ── Fetch signed URL for custom STL viewer when entering custom_preview ────
+  useEffect(() => {
+    if (phase === "custom_preview" && customPreviewState?.job_id) {
+      setCustomStlSignedUrl(null);
+      fetch(`/api/artifacts/signed-url?job_id=${encodeURIComponent(customPreviewState.job_id)}`)
+        .then((r) => r.json())
+        .then((data: { signed_url?: string; artifact_id?: string }) => {
+          if (data.signed_url) {
+            setCustomStlSignedUrl(data.signed_url);
+          }
+          // Also capture artifact_id if not already set
+          if (data.artifact_id && customPreviewState && !customPreviewState.artifact_id) {
+            setCustomPreviewState((prev) =>
+              prev ? { ...prev, artifact_id: data.artifact_id ?? null } : prev
+            );
+          }
+        })
+        .catch(() => {
+          // Viewer will fall back to download route
+        });
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [phase, customPreviewState?.job_id]);
+
   // ── Custom preview: approve → redirect to job page ────────────────────────
   const handleCustomApprove = useCallback(() => {
     if (!customPreviewState?.job_id) return;
@@ -574,6 +617,7 @@ export default function UniversalCreatorFlow({
       if (data.status === "custom_generate_ready") {
         setCustomPreviewState({
           job_id: data.job_id,
+          artifact_id: data.artifact_id ?? null,
           storage_path: data.storage_path ?? null,
           generated_code: data.generated_code ?? null,
           plain_english_summary: data.plain_english_summary ?? null,
@@ -581,12 +625,13 @@ export default function UniversalCreatorFlow({
           cad_run_id: data.cad_run_id ?? null,
         });
         setRefinementInput("");
+        setCustomStlSignedUrl(null);
         setPhase("custom_preview");
         return;
       }
 
       if (data.status === "custom_generate_failed") {
-        setError(data.error ?? "Refinement failed. Please try again.");
+        setError(data.error ?? "Custom shape couldn't be generated — try describing it differently.");
         setPhase("custom_preview");
         return;
       }
@@ -622,6 +667,67 @@ export default function UniversalCreatorFlow({
     setError(null);
     setPrefilledPrompt(prompt);
   }, []);
+
+  // ── Custom generate from AiUnsupportedPanel or SoftMatchPanel ────────────
+  // Called when user clicks "Generate with LLM →" from either panel.
+  // Uses the last submitted text as the custom_description.
+  const handleCustomGenerateEscape = useCallback(async () => {
+    const desc = lastSubmittedText.trim();
+    if (!desc) return;
+
+    setAiUnsupportedState(null);
+    setSoftMatchState(null);
+    setPhase("routing");
+    setError(null);
+
+    try {
+      const res = await fetch("/api/invent", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          problem: desc,
+          custom_generate: true,
+          custom_description: desc,
+        }),
+      });
+      const data = await res.json() as {
+        status: string;
+        job_id?: string;
+        artifact_id?: string;
+        storage_path?: string;
+        generated_code?: string;
+        plain_english_summary?: string;
+        cad_run_id?: string;
+        error?: string;
+      };
+
+      if (data.status === "custom_generate_ready") {
+        setCustomPreviewState({
+          job_id: data.job_id ?? "",
+          artifact_id: data.artifact_id ?? null,
+          storage_path: data.storage_path ?? null,
+          generated_code: data.generated_code ?? null,
+          plain_english_summary: data.plain_english_summary ?? null,
+          original_description: desc,
+          cad_run_id: data.cad_run_id ?? null,
+        });
+        setPhase("custom_preview");
+      } else if (data.status === "custom_generate_failed") {
+        setError(
+          data.error
+            ? `Custom shape couldn't be generated — ${data.error}`
+            : "Custom shape couldn't be generated — try describing it differently."
+        );
+        setPhase("idle");
+      } else {
+        setError("Unexpected response. Please try again.");
+        setPhase("idle");
+      }
+    } catch {
+      setError("Custom generation failed. Please try again.");
+      setPhase("idle");
+    }
+  }, [lastSubmittedText]);
 
   const handleFallbackConfirm = useCallback(async (values: { object_type: string; height_mm: string; width_mm: string; material: string; purpose: string; detail_level: string }) => {
     setPhase("generating");
@@ -719,6 +825,7 @@ export default function UniversalCreatorFlow({
           clarification_question={softMatchState.clarification_question}
           onGenerate={handleSoftMatchGenerate}
           onReset={handleReset}
+          onCustomGenerate={handleCustomGenerateEscape}
         />
       )}
 
@@ -729,6 +836,8 @@ export default function UniversalCreatorFlow({
           suggestions={aiUnsupportedState.suggestions}
           onTryExample={handleTryExample}
           onReset={handleReset}
+          onCustomGenerate={handleCustomGenerateEscape}
+          originalDescription={lastSubmittedText}
         />
       )}
 
@@ -755,27 +864,65 @@ export default function UniversalCreatorFlow({
             </div>
           )}
 
-          {/* STL viewer placeholder / download link */}
+          {/* Inline 3D viewer — same experience as parametric jobs (Track 1) */}
           {customPreviewState.storage_path && (
-            <div className="px-5 py-4 border-b border-steel-700/50">
-              <div className="rounded-lg bg-steel-900/50 border border-steel-700 p-4 flex items-center justify-between gap-3">
-                <div className="flex items-center gap-3">
-                  <div className="w-8 h-8 rounded bg-brand-600/20 flex items-center justify-center text-brand-400 text-sm font-bold">
-                    STL
+            <div className="border-b border-steel-700/50">
+              {customStlSignedUrl ? (
+                <div className="space-y-2 px-5 py-4">
+                  <div className="rounded-xl overflow-hidden bg-steel-900 border border-steel-800">
+                    <StlViewer
+                      url={customStlSignedUrl}
+                      width={600}
+                      height={360}
+                      className="w-full"
+                    />
                   </div>
-                  <div>
-                    <div className="text-sm text-steel-200 font-medium">custom_shape.stl</div>
-                    <div className="text-xs text-steel-500">Ready for 3D printing</div>
+                  <div className="flex items-center justify-between">
+                    <span className="inline-flex items-center gap-1 text-xs bg-indigo-900/30 text-indigo-300 border border-indigo-800 rounded px-2 py-0.5">
+                      <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
+                      </svg>
+                      3D Preview
+                    </span>
+                    <span className="text-xs text-steel-600">Click · drag · scroll to explore</span>
+                    {customPreviewState.artifact_id && (
+                      <a
+                        href={`/api/artifacts/${customPreviewState.artifact_id}/download`}
+                        className="text-xs bg-brand-600 hover:bg-brand-500 text-white px-3 py-1.5 rounded-md transition-colors font-medium"
+                        download
+                      >
+                        Download STL
+                      </a>
+                    )}
                   </div>
                 </div>
-                <a
-                  href={`/api/download/${customPreviewState.job_id}`}
-                  className="text-xs bg-brand-600 hover:bg-brand-500 text-white px-3 py-1.5 rounded-md transition-colors font-medium"
-                  download
-                >
-                  Download STL
-                </a>
-              </div>
+              ) : (
+                // Viewer loading or signed URL not yet available — show STL badge + download
+                <div className="px-5 py-4">
+                  <div className="rounded-lg bg-steel-900/50 border border-steel-700 p-4 flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-3">
+                      <div className="w-8 h-8 rounded bg-brand-600/20 flex items-center justify-center text-brand-400 text-sm font-bold">
+                        STL
+                      </div>
+                      <div>
+                        <div className="text-sm text-steel-200 font-medium">custom_shape.stl</div>
+                        <div className="text-xs text-steel-500">
+                          {customPreviewState.artifact_id ? "Loading 3D viewer…" : "Ready for 3D printing"}
+                        </div>
+                      </div>
+                    </div>
+                    {customPreviewState.artifact_id && (
+                      <a
+                        href={`/api/artifacts/${customPreviewState.artifact_id}/download`}
+                        className="text-xs bg-brand-600 hover:bg-brand-500 text-white px-3 py-1.5 rounded-md transition-colors font-medium"
+                        download
+                      >
+                        Download STL
+                      </a>
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
           )}
 

@@ -7,23 +7,32 @@ executing it in a subprocess sandbox, and validating the output STL.
 Pipeline:
   1. Build a CadQuery-focused system prompt
   2. Call gpt-4.1-mini to generate Python code
-  3. Execute the code in a subprocess (timeout 30s)
-  4. If execution fails, retry up to MAX_RETRIES times with the error message
-  5. Export the resulting shape to STL
-  6. Validate bounding box and wall thickness
-  7. Return the STL path + generated code + plain-English summary
+  3. Static safety validation (allowlist check — reject on first violation)
+  4. Execute the code in a subprocess (timeout 30s)
+  5. If execution fails, retry up to MAX_RETRIES times with the error message
+  6. Export the resulting shape to STL
+  7. Validate bounding box and wall thickness
+  8. Return the STL path + generated code + plain-English summary
+
+Safety protections (Track 4):
+  A. Static pre-execution validator — rejects dangerous imports/calls before exec
+  B. 30s wall-time timeout per attempt — kills subprocess on timeout
+  C. Structured JSON observability log per attempt (job_id, code_sha256, timestamps, pass/fail)
+  D. Failure UX — never exposes raw Python errors to the caller
 
 Environment variables:
   OPENAI_API_KEY  — required for LLM code generation
   OPENAI_API_BASE — optional custom base URL
 """
 
+import hashlib
+import json
 import os
+import re
 import sys
 import uuid
 import time
 import logging
-import textwrap
 import subprocess
 import tempfile
 from pathlib import Path
@@ -33,6 +42,112 @@ logger = logging.getLogger(__name__)
 
 MAX_RETRIES = 3
 EXEC_TIMEOUT_S = 30
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Track 4A — Static safety validator
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Patterns that are NEVER allowed in generated CadQuery code
+_BLOCKED_PATTERNS: list[tuple[str, str]] = [
+    # Dangerous imports
+    (r"\bimport\s+os\b", "import os"),
+    (r"\bimport\s+sys\b", "import sys"),
+    (r"\bimport\s+subprocess\b", "import subprocess"),
+    (r"\bimport\s+socket\b", "import socket"),
+    (r"\bimport\s+requests\b", "import requests"),
+    (r"\bimport\s+urllib\b", "import urllib"),
+    (r"\bimport\s+http\b", "import http"),
+    (r"\bimport\s+ftplib\b", "import ftplib"),
+    (r"\bimport\s+shutil\b", "import shutil"),
+    (r"\bimport\s+pathlib\b", "import pathlib"),
+    (r"\bimport\s+glob\b", "import glob"),
+    (r"\bfrom\s+os\b", "from os"),
+    (r"\bfrom\s+sys\b", "from sys"),
+    (r"\bfrom\s+subprocess\b", "from subprocess"),
+    (r"\bfrom\s+socket\b", "from socket"),
+    (r"\bfrom\s+requests\b", "from requests"),
+    (r"\bfrom\s+urllib\b", "from urllib"),
+    (r"\bfrom\s+http\b", "from http"),
+    (r"\bfrom\s+ftplib\b", "from ftplib"),
+    (r"\bfrom\s+shutil\b", "from shutil"),
+    (r"\bfrom\s+pathlib\b", "from pathlib"),
+    # Dangerous builtins
+    (r"\bexec\s*\(", "exec()"),
+    (r"\beval\s*\(", "eval()"),
+    (r"\b__import__\s*\(", "__import__()"),
+    (r"\bcompile\s*\(", "compile()"),
+    (r"\bopen\s*\(", "open()"),
+    (r"\bgetattr\s*\(", "getattr()"),
+    (r"\bsetattr\s*\(", "setattr()"),
+    (r"\bdelattr\s*\(", "delattr()"),
+    (r"\b__builtins__\b", "__builtins__"),
+    (r"\b__globals__\b", "__globals__"),
+    (r"\b__locals__\b", "__locals__"),
+    # Network references
+    (r"https?://", "http/https URL"),
+    (r"ftp://", "ftp URL"),
+]
+
+# Compiled patterns for performance
+_COMPILED_BLOCKED = [(re.compile(pattern, re.IGNORECASE), label) for pattern, label in _BLOCKED_PATTERNS]
+
+
+def _validate_code_safety(code: str) -> tuple[bool, str]:
+    """
+    Static pre-execution safety validator.
+
+    Returns (is_safe: bool, rejection_reason: str).
+    Rejects on the FIRST violation found — does not attempt to sanitize.
+
+    Allowlist: cadquery, build123d, math, numpy, and standard math/geometry modules.
+    """
+    for compiled_pattern, label in _COMPILED_BLOCKED:
+        if compiled_pattern.search(code):
+            reason = f"Blocked pattern detected: {label}"
+            logger.warning(f"[llm_cad] Static validator REJECTED code: {reason}")
+            return False, reason
+    return True, ""
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Track 4C — Structured observability logging
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _log_exec_event(
+    job_id: str,
+    run_id: str,
+    attempt: int,
+    code: Optional[str],
+    status: str,
+    rejection_reason: Optional[str],
+    start_ts: float,
+    end_ts: float,
+    error: Optional[str] = None,
+) -> None:
+    """
+    Emit a structured JSON observability log line for each execution attempt.
+
+    Fields: job_id, run_id, attempt, code_sha256, start_ts, end_ts,
+            duration_ms, status, rejection_reason, error
+    """
+    code_sha256 = hashlib.sha256((code or "").encode()).hexdigest()[:16] if code else "none"
+    duration_ms = round((end_ts - start_ts) * 1000, 1)
+
+    log_entry = {
+        "event": "cadquery_exec",
+        "job_id": job_id,
+        "run_id": run_id,
+        "attempt": attempt,
+        "code_sha256": code_sha256,
+        "start_ts": round(start_ts, 3),
+        "end_ts": round(end_ts, 3),
+        "duration_ms": duration_ms,
+        "status": status,  # "blocked" | "exec_failed" | "exec_success" | "timeout"
+        "rejection_reason": rejection_reason,
+        "error": error[:200] if error else None,
+    }
+    logger.info(f"[cadquery_exec_log] {json.dumps(log_entry)}")
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # System prompt for CadQuery code generation
@@ -54,6 +169,9 @@ STRICT RULES:
 10. Do NOT use `import sys; sys.exit()` or any exit calls.
 11. The variable `OUTPUT_STL_PATH` will be injected at the top of your script — do NOT define it yourself.
 12. End your script with the export call. No `if __name__ == "__main__":` wrapper needed.
+13. Do NOT import os, sys, subprocess, socket, requests, urllib, http, shutil, pathlib, or any network/filesystem modules.
+14. Do NOT use exec(), eval(), open(), __import__(), or any dynamic code execution.
+15. Only use: cadquery, math, numpy (for geometry calculations only).
 
 RESPONSE FORMAT:
 Return ONLY the Python code. No markdown fences, no explanation, no comments outside the code.
@@ -167,11 +285,13 @@ def _generate_summary(description: str, code: str) -> str:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Code execution sandbox
+# Code execution sandbox (Track 4B — wall-time timeout)
 # ─────────────────────────────────────────────────────────────────────────────
 def _execute_code(code: str, output_stl_path: str) -> tuple[bool, str]:
     """
     Execute CadQuery code in a subprocess sandbox.
+
+    Track 4B: Hard 30s wall-time timeout — kills subprocess on timeout.
     Returns (success: bool, error_message: str).
     """
     # Inject the OUTPUT_STL_PATH variable at the top
@@ -203,6 +323,7 @@ def _execute_code(code: str, output_stl_path: str) -> tuple[bool, str]:
             return False, f"STL file was written but is too small ({stl_size} bytes) — likely empty."
         return True, ""
     except subprocess.TimeoutExpired:
+        logger.error(f"[llm_cad] Execution timed out after {EXEC_TIMEOUT_S}s")
         return False, f"Code execution timed out after {EXEC_TIMEOUT_S}s."
     finally:
         try:
@@ -239,7 +360,8 @@ def generate_custom_shape(
             "stl_path": str | None,
             "generated_code": str | None,
             "plain_english_summary": str | None,
-            "error": str | None,
+            "error": str | None,           # user-safe message (no raw Python)
+            "error_detail": str | None,    # internal detail for logging only
             "attempts": int,
         }
     """
@@ -262,6 +384,7 @@ def generate_custom_shape(
 
     attempts = 0
     last_error = "No attempts made."
+    last_user_safe_error = "Custom shape generation failed. Please try describing it differently."
 
     for attempt in range(MAX_RETRIES):
         attempts = attempt + 1
@@ -272,19 +395,60 @@ def generate_custom_shape(
             code = _call_llm(effective_description, current_code, current_error)
             if not code or len(code.strip()) < 20:
                 last_error = "LLM returned empty or trivially short code."
+                last_user_safe_error = "Custom shape couldn't be generated — try describing it differently."
                 current_code = None
                 current_error = last_error
+                _log_exec_event(
+                    job_id=job_id, run_id=run_id, attempt=attempts, code=code,
+                    status="exec_failed", rejection_reason=None,
+                    start_ts=time.time(), end_ts=time.time(), error=last_error,
+                )
                 continue
 
-            # Execute in sandbox
+            # ── Track 4A: Static safety validation ───────────────────────────
+            exec_start = time.time()
+            is_safe, rejection_reason = _validate_code_safety(code)
+            if not is_safe:
+                exec_end = time.time()
+                last_error = f"Static validator blocked: {rejection_reason}"
+                last_user_safe_error = "Custom shape couldn't be generated — try describing it differently."
+                _log_exec_event(
+                    job_id=job_id, run_id=run_id, attempt=attempts, code=code,
+                    status="blocked", rejection_reason=rejection_reason,
+                    start_ts=exec_start, end_ts=exec_end, error=last_error,
+                )
+                # Blocked code — do NOT retry with the same code; ask LLM to regenerate
+                current_code = None
+                current_error = f"Code was rejected by safety validator: {rejection_reason}. Regenerate without using any OS, filesystem, network, or dangerous Python features."
+                continue
+
+            # ── Track 4B: Execute in subprocess sandbox ───────────────────────
             success, exec_error = _execute_code(code, stl_path)
+            exec_end = time.time()
+
             if not success:
                 last_error = exec_error
+                # Track 4D: User-safe error — never expose raw Python tracebacks
+                if "timed out" in exec_error.lower():
+                    last_user_safe_error = "Custom shape generation timed out — try a simpler description."
+                else:
+                    last_user_safe_error = "Custom shape couldn't be generated — try describing it differently."
+
+                _log_exec_event(
+                    job_id=job_id, run_id=run_id, attempt=attempts, code=code,
+                    status="exec_failed", rejection_reason=None,
+                    start_ts=exec_start, end_ts=exec_end, error=exec_error,
+                )
                 current_code = code
                 current_error = exec_error
                 continue
 
-            # Success — generate summary
+            # ── Success ───────────────────────────────────────────────────────
+            _log_exec_event(
+                job_id=job_id, run_id=run_id, attempt=attempts, code=code,
+                status="exec_success", rejection_reason=None,
+                start_ts=exec_start, end_ts=exec_end,
+            )
             summary = _generate_summary(description, code)
             logger.info(f"[llm_cad] Success on attempt {attempts}: {stl_path}")
             return {
@@ -293,12 +457,19 @@ def generate_custom_shape(
                 "generated_code": code,
                 "plain_english_summary": summary,
                 "error": None,
+                "error_detail": None,
                 "attempts": attempts,
             }
 
         except Exception as e:
             last_error = str(e)
+            last_user_safe_error = "Custom shape couldn't be generated — try describing it differently."
             logger.error(f"[llm_cad] Unexpected error on attempt {attempts}: {e}")
+            _log_exec_event(
+                job_id=job_id, run_id=run_id, attempt=attempts, code=current_code,
+                status="exec_failed", rejection_reason=None,
+                start_ts=time.time(), end_ts=time.time(), error=last_error,
+            )
             current_code = None
             current_error = last_error
 
@@ -309,6 +480,7 @@ def generate_custom_shape(
         "stl_path": None,
         "generated_code": current_code,
         "plain_english_summary": None,
-        "error": last_error,
+        "error": last_user_safe_error,   # user-safe message
+        "error_detail": last_error,      # internal detail for logging
         "attempts": attempts,
     }

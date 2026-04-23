@@ -22,5 +22,7 @@ services:
         sync: false
       - key: SENTRY_DSN
         sync: false
+      - key: OPENAI_API_KEY
+        sync: false
       - key: DEBUG
         value: "false"

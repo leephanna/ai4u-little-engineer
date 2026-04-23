@@ -14,6 +14,7 @@
  *   - All inferred dimensions as editable number fields
  *     (missing dims highlighted in amber)
  *   - "Generate with these dimensions" (primary)
+ *   - "Generate with LLM instead" (escape hatch for complex shapes)
  *   - "Describe differently" (secondary — resets)
  *
  * The user can edit any dimension value before generating.
@@ -32,6 +33,8 @@ export interface SoftMatchPanelProps {
   clarification_question: string | null;
   onGenerate: (family: string, parameters: Record<string, number>) => void;
   onReset: () => void;
+  /** Called when user wants to bypass parametric and use LLM CadQuery instead */
+  onCustomGenerate?: () => void;
 }
 
 function formatFamilyName(family: string): string {
@@ -57,6 +60,7 @@ export function SoftMatchPanel({
   clarification_question,
   onGenerate,
   onReset,
+  onCustomGenerate,
 }: SoftMatchPanelProps) {
   // Editable dimension state — pre-filled with AI-inferred values
   const [dims, setDims] = useState<Record<string, string>>(() => {
@@ -120,6 +124,10 @@ export function SoftMatchPanel({
     ...missing_dims.filter((d) => !(d in parameters)),
   ];
 
+  // Show the LLM escape hatch when confidence is low (< 75) — the parametric
+  // match is approximate and the user might prefer a custom-generated shape.
+  const showLlmEscapeHatch = onCustomGenerate && confidencePct < 75;
+
   return (
     <div className="rounded-xl border border-brand-600/50 bg-steel-800/60 p-6 space-y-5">
       {/* Header */}
@@ -159,6 +167,22 @@ export function SoftMatchPanel({
         </div>
         <span className="text-xs text-steel-400 w-10 text-right">{confidencePct}%</span>
       </div>
+
+      {/* LLM escape hatch — shown when confidence is low */}
+      {showLlmEscapeHatch && (
+        <div className="rounded-lg bg-indigo-900/20 border border-indigo-700/40 px-4 py-3 flex items-center justify-between gap-3">
+          <p className="text-xs text-indigo-300">
+            <span className="font-semibold">Not a perfect fit?</span>{" "}
+            Our LLM CadQuery engine can generate a more accurate custom shape.
+          </p>
+          <button
+            onClick={onCustomGenerate}
+            className="shrink-0 text-xs px-3 py-1.5 rounded-md bg-indigo-700 hover:bg-indigo-600 text-white font-medium transition-colors whitespace-nowrap"
+          >
+            Generate with LLM →
+          </button>
+        </div>
+      )}
 
       {/* Inline clarification question */}
       {clarification_question && (

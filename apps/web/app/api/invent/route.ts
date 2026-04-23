@@ -811,16 +811,22 @@ async function handleCustomGenerate({
     });
   }
 
-  // Record the artifact
+  // Record the artifact and capture the artifact_id for the viewer
+  let artifactId: string | null = null;
   if (cadWorkerResult.storage_path) {
-    await serviceSupabase.from("artifacts").insert({
-      job_id: job.id,
-      cad_run_id: cadWorkerResult.cad_run_id ?? crypto.randomUUID(),
-      kind: "stl",
-      storage_path: cadWorkerResult.storage_path,
-      mime_type: "model/stl",
-      file_size_bytes: 0,
-    }).then(() => {/* non-fatal */}, () => {/* non-fatal */});
+    const { data: artifactRow } = await serviceSupabase
+      .from("artifacts")
+      .insert({
+        job_id: job.id,
+        cad_run_id: cadWorkerResult.cad_run_id ?? crypto.randomUUID(),
+        kind: "stl",
+        storage_path: cadWorkerResult.storage_path,
+        mime_type: "model/stl",
+        file_size_bytes: 0,
+      })
+      .select("id")
+      .single();
+    artifactId = artifactRow?.id ?? null;
   }
 
   // Update job to done
@@ -832,6 +838,7 @@ async function handleCustomGenerate({
   return NextResponse.json({
     status: "custom_generate_ready",
     job_id: job.id,
+    artifact_id: artifactId,
     storage_path: cadWorkerResult.storage_path,
     generated_code: cadWorkerResult.generated_code,
     plain_english_summary: cadWorkerResult.plain_english_summary,

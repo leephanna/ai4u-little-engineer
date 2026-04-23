@@ -7,6 +7,7 @@
  * Replaces the silent dead-end with:
  *   - "We can't make that exact shape yet" header
  *   - AI's explanation of why
+ *   - "Try custom generation →" button — routes to LLM CadQuery path
  *   - 3 example prompts the system CAN handle (drawn from EXAMPLE_PROMPTS)
  *   - "Try one of these" buttons that pre-fill the input
  *
@@ -27,6 +28,10 @@ export interface AiUnsupportedPanelProps {
   suggestions: ExamplePrompt[];
   onTryExample: (prompt: string) => void;
   onReset: () => void;
+  /** Called when user wants to try LLM CadQuery generation for this shape */
+  onCustomGenerate?: () => void;
+  /** The original description (used in the custom generate CTA label) */
+  originalDescription?: string;
 }
 
 export function AiUnsupportedPanel({
@@ -34,6 +39,8 @@ export function AiUnsupportedPanel({
   suggestions,
   onTryExample,
   onReset,
+  onCustomGenerate,
+  originalDescription,
 }: AiUnsupportedPanelProps) {
   return (
     <div className="rounded-xl border border-steel-600 bg-steel-800/60 p-6 space-y-5">
@@ -44,10 +51,10 @@ export function AiUnsupportedPanel({
         </div>
         <div>
           <h3 className="font-semibold text-steel-100 text-base">
-            We can&apos;t make that exact shape yet
+            No parametric match found
           </h3>
           <p className="text-sm text-steel-400 mt-0.5">
-            AI4U currently supports 11 parametric part families.
+            AI4U supports 11 parametric families — but can also generate custom shapes with LLM-powered CadQuery.
           </p>
         </div>
       </div>
@@ -55,11 +62,38 @@ export function AiUnsupportedPanel({
       {/* AI explanation */}
       <p className="text-sm text-steel-300 leading-relaxed">{explanation}</p>
 
+      {/* Custom generation CTA — primary escape hatch */}
+      {onCustomGenerate && (
+        <div className="rounded-lg bg-brand-900/20 border border-brand-600/40 px-4 py-4 space-y-3">
+          <div className="flex items-start gap-2">
+            <span className="text-brand-400 text-base mt-0.5" aria-hidden="true">✦</span>
+            <div>
+              <p className="text-sm text-brand-200 font-semibold">
+                Try custom generation
+              </p>
+              <p className="text-xs text-brand-400 mt-0.5">
+                Our LLM CadQuery engine can attempt to generate this shape directly.
+                {originalDescription && (
+                  <span className="text-brand-500"> Results may vary for complex geometry.</span>
+                )}
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={onCustomGenerate}
+            className="w-full px-4 py-2.5 rounded-lg bg-brand-600 hover:bg-brand-500 text-white text-sm font-semibold transition-colors flex items-center justify-center gap-2"
+          >
+            <span>✦</span>
+            Generate with LLM CadQuery →
+          </button>
+        </div>
+      )}
+
       {/* Example prompts */}
       {suggestions.length > 0 && (
         <div>
           <p className="text-xs font-semibold text-steel-500 uppercase tracking-wide mb-3">
-            Things we CAN make — try one of these:
+            Or try one of these supported shapes:
           </p>
           <div className="space-y-2">
             {suggestions.map((s, i) => (
