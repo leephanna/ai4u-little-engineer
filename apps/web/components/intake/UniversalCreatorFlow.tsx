@@ -34,6 +34,7 @@
 
 import { useState, useCallback, useEffect } from "react";
 import { useRouter } from "next/navigation";
+import { useAuth } from "@clerk/nextjs";
 import dynamic from "next/dynamic";
 import UniversalInputComposer, { type ComposerPayload } from "./UniversalInputComposer";
 import LivePrintPlan from "./LivePrintPlan";
@@ -146,6 +147,7 @@ export default function UniversalCreatorFlow({
   initialCustomDescription,
 }: Props) {
   const router = useRouter();
+  const { isLoaded, isSignedIn } = useAuth();
   const [phase, setPhase] = useState<FlowPhase>("idle");
   const [interpretation, setInterpretation] = useState<InterpretationResult | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -188,8 +190,20 @@ export default function UniversalCreatorFlow({
   // ── Custom-generate fast-path (gallery items with custom_generate=true) ────
   // Bypasses the AI router entirely. Calls /api/invent with custom_generate: true
   // so it goes straight to handleCustomGenerate → CAD worker /generate-custom.
+  // IMPORTANT: Gated on Clerk isLoaded + isSignedIn to avoid 401 on mount.
   useEffect(() => {
+    // Wait for Clerk to finish loading before firing the API call.
+    // Without this gate, the fetch fires before the auth cookie is attached
+    // and /api/invent returns 401 silently, leaving the spinner hanging forever.
+    if (!isLoaded) return;
+
     if (initialCustomDescription && phase === "idle") {
+      if (!isSignedIn) {
+        // Not signed in — show a clear error instead of hanging
+        setError("Please sign in to generate custom shapes.");
+        return;
+      }
+
       setPhase("routing");
       setError(null);
       setLastSubmittedText(initialCustomDescription);
@@ -203,7 +217,14 @@ export default function UniversalCreatorFlow({
           custom_description: initialCustomDescription,
         }),
       })
-        .then((res) => res.json())
+        .then(async (res) => {
+          if (!res.ok) {
+            // Non-200 response — surface an explicit error instead of hanging
+            const text = await res.text().catch(() => "");
+            throw new Error(`Server returned ${res.status}${text ? `: ${text.slice(0, 120)}` : ""}`);
+          }
+          return res.json();
+        })
         .then((data) => {
           if (data.status === "custom_generate_ready") {
             setCustomPreviewState({
@@ -219,22 +240,24 @@ export default function UniversalCreatorFlow({
           } else if (data.status === "custom_generate_failed") {
             setError(
               data.error
-                ? `Custom shape couldn't be generated — ${data.error}`
-                : "Custom shape couldn't be generated — try describing it differently."
+                ? `Generation failed — ${data.error}`
+                : "Generation failed — please try again."
             );
             setPhase("idle");
           } else {
-            setError("Unexpected response from custom generation. Please try again.");
+            setError("Generation failed — please try again.");
             setPhase("idle");
           }
         })
-        .catch(() => {
-          setError("Custom generation request failed. Please try again.");
+        .catch((err: unknown) => {
+          const msg = err instanceof Error ? err.message : "Unknown error";
+          setError(`Generation failed — ${msg}`);
           setPhase("idle");
         });
     }
+  // Re-run when Clerk finishes loading so the gate can open
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [isLoaded, isSignedIn]);
 
   // ── PRIMARY PATH: Submit directly to /api/invent ─────────────────────────
   // This is the new primary flow. The AI router inside /api/invent handles
@@ -792,8 +815,62 @@ export default function UniversalCreatorFlow({
 
       {/* Error */}
       {error && (
-        <div className="rounded-lg bg-red-900/30 border border-red-700 px-4 py-3 text-sm text-red-300">
-          {error}
+        <div className="rounded-lg bg-red-900/30 border border-red-700 px-4 py-3 text-sm text-red-300 flex items-center justify-between gap-3">
+          <span>{error}</span>
+          {/* Show retry button when the gallery fast-path failed */}
+          {initialCustomDescription && phase === "idle" && (
+            <button
+              onClick={() => {
+                setError(null);
+                // Reset phase so the useEffect can re-fire
+                // We call the API directly here rather than relying on the useEffect
+                // to avoid a stale closure issue
+                setPhase("routing");
+                setLastSubmittedText(initialCustomDescription);
+                fetch("/api/invent", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({
+                    problem: initialCustomDescription,
+                    custom_generate: true,
+                    custom_description: initialCustomDescription,
+                  }),
+                })
+                  .then(async (res) => {
+                    if (!res.ok) {
+                      const text = await res.text().catch(() => "");
+                      throw new Error(`Server returned ${res.status}${text ? `: ${text.slice(0, 120)}` : ""}`);
+                    }
+                    return res.json();
+                  })
+                  .then((data) => {
+                    if (data.status === "custom_generate_ready") {
+                      setCustomPreviewState({
+                        job_id: data.job_id,
+                        artifact_id: data.artifact_id ?? null,
+                        storage_path: data.storage_path ?? null,
+                        generated_code: data.generated_code ?? null,
+                        plain_english_summary: data.plain_english_summary ?? null,
+                        original_description: initialCustomDescription,
+                        cad_run_id: data.cad_run_id ?? null,
+                      });
+                      setPhase("custom_preview");
+                    } else {
+                      setError(data.error ? `Generation failed — ${data.error}` : "Generation failed — please try again.");
+                      setPhase("idle");
+                    }
+                  })
+                  .catch((err: unknown) => {
+                    const msg = err instanceof Error ? err.message : "Unknown error";
+                    setError(`Generation failed — ${msg}`);
+                    setPhase("idle");
+                  });
+              }}
+              className="shrink-0 px-3 py-1.5 rounded-md bg-red-700 hover:bg-red-600 text-white text-xs font-medium transition-colors whitespace-nowrap"
+            >
+              Try again
+            </button>
+          )}
         </div>
       )}
 

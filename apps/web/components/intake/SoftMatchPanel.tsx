@@ -124,9 +124,11 @@ export function SoftMatchPanel({
     ...missing_dims.filter((d) => !(d in parameters)),
   ];
 
-  // Show the LLM escape hatch when confidence is low (< 75) — the parametric
-  // match is approximate and the user might prefer a custom-generated shape.
-  const showLlmEscapeHatch = onCustomGenerate && confidencePct < 75;
+  // Show the LLM escape hatch whenever onCustomGenerate is provided.
+  // Previously gated on confidence < 75, but this meant the button was hidden
+  // for high-confidence matches (e.g. cable_clip at 80%), making it unreachable.
+  // Users should always have the option to use LLM generation from soft_match.
+  const showLlmEscapeHatch = !!onCustomGenerate;
 
   return (
     <div className="rounded-xl border border-brand-600/50 bg-steel-800/60 p-6 space-y-5">
